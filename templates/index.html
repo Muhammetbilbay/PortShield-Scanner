@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PortShield Web Kontrol Paneli</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-color: #0b0f19;
@@ -61,6 +62,40 @@
             backdrop-filter: blur(16px);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             margin-bottom: 30px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .stat-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-val {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .form-grid {
@@ -236,6 +271,14 @@
             font-size: 0.85rem;
             line-height: 1.4;
         }
+
+        .chart-box {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            max-height: 250px;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -244,6 +287,44 @@
             <h1>PortShield Dashboard</h1>
             <p>Asenkron Ağ Tarayıcı ve Siber Keşif Laboratuvarı</p>
         </div>
+
+        {% if results is not none %}
+        <!-- Canlı İstatistik Kartları -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-val" style="color: var(--accent-blue);">{{ results | length }}</div>
+                <div class="stat-label">Açık Port</div>
+            </div>
+            {% set warning_count = namespace(value=0) %}
+            {% for item in results %}
+                {% set warning_count.value = warning_count.value + (item.warnings | length) %}
+            {% endfor %}
+            <div class="stat-card">
+                <div class="stat-val" style="color: var(--accent-red);">{{ warning_count.value }}</div>
+                <div class="stat-label">Bulgu / Zafiyet</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" style="color: var(--accent-green);">{{ subdomains | length }}</div>
+                <div class="stat-label">Subdomain</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" style="color: var(--accent-yellow);">{{ directories | length }}</div>
+                <div class="stat-label">Gizli Klasör</div>
+            </div>
+        </div>
+
+        <!-- İstatistik Grafiği -->
+        {% if results %}
+        <div class="card">
+            <div class="results-header" style="border-left-color: var(--accent-blue);">
+                <h2>Zafiyet & Port Dağılım Grafiği</h2>
+            </div>
+            <div class="chart-box">
+                <canvas id="vulnChart"></canvas>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
 
         <div class="card">
             {% if error %}
@@ -292,6 +373,10 @@
                     <label class="checkbox-group">
                         <input type="checkbox" id="dir_scan" name="dir_scan" value="true">
                         Gizli Dizin (Directory Buster) Tara
+                    </label>
+                    <label class="checkbox-group">
+                        <input type="checkbox" id="brute_force" name="brute_force" value="true">
+                        Zayıf Şifre (Brute Force) Test Et
                     </label>
                 </div>
 
@@ -396,5 +481,38 @@
         </div>
         {% endif %}
     </div>
+
+    {% if results %}
+    <script>
+        const ctx = document.getElementById('vulnChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Zafiyet / Bulgular', 'Açık Portlar'],
+                datasets: [{
+                    label: 'Adet',
+                    data: [{{ warning_count.value }}, {{ results | length }}],
+                    backgroundColor: [
+                        '#ef4444',
+                        '#3b82f6'
+                    ],
+                    borderColor: 'rgba(255, 255, 255, 0.08)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#f1f5f9'
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+    {% endif %}
 </body>
 </html>

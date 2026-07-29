@@ -10,6 +10,8 @@ import ssl
 import asyncio
 import subprocess
 import re
+import paramiko
+import ftplib
 from threading import Thread, Lock
 from queue import Queue
 
@@ -204,6 +206,53 @@ def probe_ssh_details(target_ip, port):
             return f"SSH Sürümü: {banner}"
     except Exception as e:
         return f"SSH Detayı Alınamadı: {str(e)[:50]}"
+
+def test_ssh_brute_force(target_ip, port):
+    """
+    SSH portu için yaygın zayıf şifreleri hızlıca test eder.
+    """
+    credentials = [
+        ("root", "root"),
+        ("admin", "admin"),
+        ("admin", "123456"),
+        ("ubuntu", "ubuntu"),
+        ("user", "password")
+    ]
+    for username, password in credentials:
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(target_ip, port=port, username=username, password=password, timeout=1.5, banner_timeout=1.5)
+            ssh.close()
+            return f"ZAYIF ŞİFRE BULUNDU: SSH Girişi Başarılı! ({username}:{password})"
+        except paramiko.AuthenticationException:
+            pass
+        except Exception:
+            pass
+    return None
+
+def test_ftp_brute_force(target_ip, port):
+    """
+    FTP portu için yaygın zayıf şifreleri hızlıca test eder.
+    """
+    credentials = [
+        ("anonymous", "anonymous@example.com"),
+        ("admin", "admin"),
+        ("admin", "123456"),
+        ("root", "root"),
+        ("ftp", "ftp")
+    ]
+    for username, password in credentials:
+        try:
+            ftp = ftplib.FTP()
+            ftp.connect(target_ip, port=port, timeout=1.5)
+            ftp.login(user=username, passwd=password)
+            ftp.quit()
+            return f"ZAYIF ŞİFRE BULUNDU: FTP Girişi Başarılı! ({username}:{password})"
+        except Exception:
+            pass
+    return None
+
 
 
 def scan_port(target_ip, port, timeout):
@@ -410,7 +459,7 @@ def worker(queue, timeout, open_ports, delay, scan_mode):
                 
         queue.task_done()
 
-async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports):
+async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports, brute_force=False):
     """
     Asenkron tarama görevini yürütür ve sınırlandırıcı semaphore'u uygular.
     """
@@ -448,6 +497,17 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports)
                 header_warnings = await asyncio.to_thread(check_http_security_headers, target_ip, port)
                 for hw in header_warnings:
                     warnings.append(hw)
+                    
+            # Opsiyonel SSH/FTP Kaba Kuvvet Testi
+            if brute_force:
+                if port == 22:
+                    bf_res = await asyncio.to_thread(test_ssh_brute_force, target_ip, port)
+                    if bf_res:
+                        warnings.append(bf_res)
+                elif port == 21:
+                    bf_res = await asyncio.to_thread(test_ftp_brute_force, target_ip, port)
+                    if bf_res:
+                        warnings.append(bf_res)
                 
             open_ports.append((target_ip, port, banner, warnings))
             with print_lock:
@@ -500,7 +560,7 @@ async def brute_force_directories(target_ip, port):
     results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
 
-async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_ports, max_workers):
+async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_ports, max_workers, brute_force=False):
     """
     Tüm asenkron tarama görevlerini koordine eder.
     """
@@ -508,7 +568,7 @@ async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_por
     tasks = []
     for ip in targets:
         for port in ports:
-            tasks.append(scan_task(sem, ip, port, timeout, delay, scan_mode, open_ports))
+            tasks.append(scan_task(sem, ip, port, timeout, delay, scan_mode, open_ports, brute_force=brute_force))
     await asyncio.gather(*tasks)
 
 

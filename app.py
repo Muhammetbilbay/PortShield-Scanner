@@ -53,7 +53,8 @@ async def scan(
     delay: int = Form(0), 
     udp: bool = Form(False),
     subdomain_scan: bool = Form(False),
-    dir_scan: bool = Form(False)
+    dir_scan: bool = Form(False),
+    brute_force: bool = Form(False)
 ):
     open_ports = []
     scan_mode = "UDP" if udp else "TCP"
@@ -84,7 +85,8 @@ async def scan(
         delay=delay, 
         scan_mode=scan_mode, 
         open_ports=open_ports, 
-        max_workers=100
+        max_workers=100,
+        brute_force=brute_force
     )
     
     # Sonuçları formatla
