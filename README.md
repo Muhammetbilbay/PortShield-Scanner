@@ -5,9 +5,11 @@ Python ile yazılmış, yüksek performanslı ve çoklu iş parçacığı (multi
 ## Özellikler
 
 - **Çoklu İş Parçacıklı Tarama Motoru**: Python'un `threading` ve iş parçacığı güvenli (thread-safe) kuyruk yapılarını kullanarak binlerce portu saniyeler içinde tarar.
+- **Çoklu IP ve Subnet (CIDR) Desteği**: Tekil IP/host taramalarının yanı sıra virgülle ayrılmış IP listelerini, CIDR bloklarını (örn: `192.168.1.0/24`) ve IP aralıklarını (örn: `192.168.1.1-15`) tarayabilir.
 - **Sancak Yakalama (Banner Grabbing)**: Çalışan uygulamaları ve bunların sürümlerini tanımlamak için açık portlardaki servis imzalarını (başlıklar, karşılama mesajları) yakalamaya çalışır.
-- **Akıllı Geri Çekilme (Fallback)**: Servisin hemen bir banner döndürmemesi durumunda, keşfedilen portları bilinen protokol veritabanıyla eşleştirir.
-- **Özel Port Aralıkları**: Belirli port aralıklarını (örneğin `1-1000`) ve port listelerini (örneğin `21,22,80,443`) destekler.
+- **Çevrimdışı Zafiyet Analizi (Offline Mapping)**: Yakalanan banner bilgilerini analiz ederek eski veya zafiyet barındıran servisler için yerel güvenlik uyarıları üretir.
+- **Dosya Kaydetme (JSON & TXT)**: Tarama sonuçlarını ve zafiyet uyarılarını yapılandırılmış JSON veya düz metin (TXT) dosyası olarak dışa aktarır.
+- **Hız Sınırlama (Rate Limiting)**: Ağ trafiğini kontrol etmek amacıyla her istek arasına milisaniye cinsinden gecikme süresi (`--delay`) koyulmasını sağlar.
 - **Temiz CLI Arayüzü**: Kolay okunabilirlik için renkli terminal çıktıları kullanır.
 
 ---
@@ -29,7 +31,7 @@ PortShield, açık portları bulmanın ötesine geçerek servislerden sürüm bi
 
 1. **Depoyu klonlayın:**
    ```bash
-   git clone https://github.com/kullaniciadi/PortShield-Scanner.git
+   git clone https://github.com/Muhammetbilbay/PortShield-Scanner.git
    cd PortShield-Scanner
    ```
 
@@ -46,9 +48,12 @@ Tarayıcıyı `python scanner.py` komutuyla ve özel parametrelerle çalıştır
 # Bir alan adının varsayılan portlarını (1-1024) tarayın
 python scanner.py -t scanme.nmap.org
 
-# 150 iş parçacığı ve 0.5s zaman aşımı ile özel aralık tarayın
-python scanner.py -t 192.168.1.1 -p 20-500 -w 150 --timeout 0.5
+# Bir IP ağ bloğunu (CIDR) tarayın
+python scanner.py -t 192.168.1.0/24 -p 22,80,443
 
-# Belirli portları tarayın
-python scanner.py -t scanme.nmap.org -p 22,80,443
+# IP aralığı belirtin ve sonuçları JSON olarak kaydedin
+python scanner.py -t 192.168.1.1-15 -p 80,443 -o tarama_raporu.json
+
+# İstekler arasına 200 milisaniye gecikme koyarak tarama yapın
+python scanner.py -t 192.168.1.10 -p 1-1000 --delay 200
 ```
