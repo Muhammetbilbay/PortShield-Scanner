@@ -12,7 +12,7 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "results": None, "error": None})
+    return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "error": None})
 
 @app.post("/scan", response_class=HTMLResponse)
 async def scan(
@@ -31,7 +31,7 @@ async def scan(
     targets = scanner.parse_targets(target)
     if not targets:
         error_msg = "Geçersiz hedef adresi girdiniz!"
-        return templates.TemplateResponse("index.html", {"request": request, "results": None, "error": error_msg})
+        return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "error": error_msg})
     
     # Portları belirle
     if top_ports > 0:
@@ -65,8 +65,7 @@ async def scan(
             "warnings": warnings
         })
         
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="index.html", context={
         "results": results_list,
         "target": target,
         "ports": ports_str,
