@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PortShield Tarama Raporu</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-green: #10b981;
+            --accent-blue: #3b82f6;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 1000px;
+            width: 100%;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            background: linear-gradient(135deg, #3b82f6, #10b981);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.5rem;
+            margin: 0;
+        }
+        .header p {
+            color: var(--text-secondary);
+            margin: 10px 0 0 0;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+        .stat-card h3 {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .stat-card p {
+            margin: 10px 0 0 0;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: var(--accent-blue);
+        }
+        .stat-card.green p { color: var(--accent-green); }
+        .stat-card.yellow p { color: var(--accent-yellow); }
+        .table-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+        }
+        .table-card h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+            border-left: 4px solid var(--accent-green);
+            padding-left: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th, td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .port-badge {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-family: monospace;
+        }
+        .status-badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .warning-list {
+            margin: 8px 0 0 0;
+            padding: 0;
+            list-style: none;
+        }
+        .warning-item {
+            color: #fca5a5;
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid var(--accent-red);
+            padding: 6px 12px;
+            border-radius: 4px;
+            margin-top: 6px;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PortShield Tarama Raporu</h1>
+            <p>Güvenlik Denetimi ve Sürüm Analiz Raporu</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Hedef Cihaz Sayısı</h3>
+                <p>1</p>
+            </div>
+            <div class="stat-card green">
+                <h3>Bulunan Açık Portlar</h3>
+                <p>2</p>
+            </div>
+            <div class="stat-card">
+                <h3>Tarama Süresi</h3>
+                <p>1.50s</p>
+            </div>
+            <div class="stat-card yellow">
+                <h3>Tarih</h3>
+                <p style="font-size: 1.1rem; line-height: 2.2rem;">2026-07-29 23:47</p>
+            </div>
+        </div>
+
+        <div class="table-card">
+            <h2>Bulunan Açık Portlar ve Servis Detayları</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Hedef IP</th>
+                        <th>Port</th>
+                        <th>Durum</th>
+                        <th>Servis / Banner</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td>127.0.0.1</td>
+                        <td><span class="port-badge">445</span></td>
+                        <td><span class="status-badge">AÇIK</span></td>
+                        <td>
+                            <strong>SMB</strong>
+                            <ul class="warning-list"><li class="warning-item">Bilgi: SMB servisi açık. MS17-010 (EternalBlue) zafiyetine karşı yama durumunu kontrol edin.</li></ul>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>127.0.0.1</td>
+                        <td><span class="port-badge">135</span></td>
+                        <td><span class="status-badge">AÇIK</span></td>
+                        <td>
+                            <strong>Bilinmeyen Servis</strong>
+                            
+                        </td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
