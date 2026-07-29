@@ -253,7 +253,45 @@ def test_ftp_brute_force(target_ip, port):
             pass
     return None
 
+def detect_waf(target_ip, port):
+    """
+    Hedef web portu üzerinde WAF (Güvenlik Duvarı) olup olmadığını analiz eder.
+    """
+    try:
+        protocol = "https" if port == 443 else "http"
+        url = f"{protocol}://{target_ip}:{port}/?id=1%27%20UNION%20SELECT%20NULL--%20"
+        context = ssl._create_unverified_context() if protocol == "https" else None
+        
+        req = urllib.request.Request(url, method="GET", headers={'User-Agent': 'Mozilla/5.0'})
+        kwargs = {"context": context} if context else {}
+        
+        try:
+            with urllib.request.urlopen(req, timeout=2.0, **kwargs) as response:
+                headers = response.info()
+                server = str(headers.get("Server", "")).lower()
+                if "cloudflare" in server:
+                    return "WAF Tespit Edildi: Cloudflare Koruması Etkin"
+                if "mod_security" in server or "modsecurity" in server:
+                    return "WAF Tespit Edildi: ModSecurity Koruması Etkin"
+        except urllib.error.HTTPError as e:
+            headers = e.headers
+            server = str(headers.get("Server", "")).lower()
+            if e.code in [403, 406, 429, 503]:
+                if "cloudflare" in server:
+                    return "WAF Tespit Edildi: Cloudflare SQLi Saldırısını Engelledi (Kod: 403)"
+                return f"WAF Tespit Edildi: Sunucu İstekleri Engelledi (HTTP Kod: {e.code})"
+    except Exception:
+        pass
+    return None
 
+async def discover_api_endpoints(target_ip, port):
+    """
+    Açık HTTP/HTTPS portları üzerinde API ve Swagger dokümantasyon yollarını arar.
+    """
+    api_paths = ["/swagger-ui.html", "/swagger.json", "/api-docs", "/v1/api-docs", "/v2/api-docs", "/swagger/index.html", "/api/v1", "/api/v2"]
+    tasks = [asyncio.to_thread(check_url_path, target_ip, port, path) for path in api_paths]
+    results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
 
 def scan_port(target_ip, port, timeout):
     """
@@ -459,7 +497,7 @@ def worker(queue, timeout, open_ports, delay, scan_mode):
                 
         queue.task_done()
 
-async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports, brute_force=False):
+async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports, brute_force=False, waf_detect=False):
     """
     Asenkron tarama görevini yürütür ve sınırlandırıcı semaphore'u uygular.
     """
@@ -508,6 +546,12 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports,
                     bf_res = await asyncio.to_thread(test_ftp_brute_force, target_ip, port)
                     if bf_res:
                         warnings.append(bf_res)
+                        
+            # Opsiyonel WAF (Güvenlik Duvarı) Tespiti
+            if waf_detect and port in [80, 8080, 443, 8443]:
+                waf_res = await asyncio.to_thread(detect_waf, target_ip, port)
+                if waf_res:
+                    warnings.append(waf_res)
                 
             open_ports.append((target_ip, port, banner, warnings))
             with print_lock:
@@ -560,7 +604,7 @@ async def brute_force_directories(target_ip, port):
     results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
 
-async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_ports, max_workers, brute_force=False):
+async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_ports, max_workers, brute_force=False, waf_detect=False):
     """
     Tüm asenkron tarama görevlerini koordine eder.
     """
@@ -568,7 +612,7 @@ async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_por
     tasks = []
     for ip in targets:
         for port in ports:
-            tasks.append(scan_task(sem, ip, port, timeout, delay, scan_mode, open_ports, brute_force=brute_force))
+            tasks.append(scan_task(sem, ip, port, timeout, delay, scan_mode, open_ports, brute_force=brute_force, waf_detect=waf_detect))
     await asyncio.gather(*tasks)
 
 

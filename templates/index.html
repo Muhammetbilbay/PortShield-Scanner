@@ -308,8 +308,8 @@
                 <div class="stat-label">Subdomain</div>
             </div>
             <div class="stat-card">
-                <div class="stat-val" style="color: var(--accent-yellow);">{{ directories | length }}</div>
-                <div class="stat-label">Gizli Klasör</div>
+                <div class="stat-val" style="color: var(--accent-yellow);">{{ directories | length + apis | length }}</div>
+                <div class="stat-label">Dizin & API</div>
             </div>
         </div>
 
@@ -326,7 +326,58 @@
         {% endif %}
         {% endif %}
 
+        <!-- Zamanlama Ayarları Formu -->
         <div class="card">
+            <div class="results-header" style="border-left-color: var(--accent-yellow);">
+                <h2>Otomatik Zamanlanmış Tarama Kur</h2>
+            </div>
+            <form action="/schedule" method="POST">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="sched_target">Hedef IP / Alan Adı</label>
+                        <input type="text" id="sched_target" name="target" required placeholder="Örn: scanme.nmap.org">
+                    </div>
+                    <div class="form-group">
+                        <label for="interval">Tarama Sıklığı (Dakika)</label>
+                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika cinsinden sıklık">
+                    </div>
+                </div>
+                <button type="submit" class="btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 15px rgba(245,158,11,0.3);">Arka Plan Zamanlayıcıyı Kur</button>
+            </form>
+        </div>
+
+        {% if scheduled %}
+        <div class="card">
+            <div class="results-header" style="border-left-color: var(--accent-green);">
+                <h2>Aktif Zamanlanmış Taramalar (Arka Plan)</h2>
+            </div>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hedef Sistem</th>
+                            <th>Aralık (Dakika)</th>
+                            <th>Durum</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in scheduled %}
+                        <tr>
+                            <td><strong>{{ item.target }}</strong></td>
+                            <td>{{ item.interval }} dk.</td>
+                            <td><span class="status-badge">Aktif Çalışıyor</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="results-header" style="border-left-color: var(--accent-green);">
+                <h2>Genel Tarama Parametreleri</h2>
+            </div>
             {% if error %}
             <div class="error-banner">
                 ⚠️ {{ error }}
@@ -377,6 +428,14 @@
                     <label class="checkbox-group">
                         <input type="checkbox" id="brute_force" name="brute_force" value="true">
                         Zayıf Şifre (Brute Force) Test Et
+                    </label>
+                    <label class="checkbox-group">
+                        <input type="checkbox" id="waf_detect" name="waf_detect" value="true">
+                        WAF (Güvenlik Duvarı) Analizi Yap
+                    </label>
+                    <label class="checkbox-group">
+                        <input type="checkbox" id="api_scan" name="api_scan" value="true">
+                        API & Swagger Keşfi Yap
                     </label>
                 </div>
 
@@ -473,6 +532,32 @@
                         <tr>
                             <td><strong>{{ item.ip }}:{{ item.port }}{{ item.path }}</strong></td>
                             <td><span class="status-badge" style="background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow);">{{ item.status }}</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if apis %}
+        <div class="card">
+            <div class="results-header" style="border-left-color: var(--accent-blue);">
+                <h2>Keşfedilen API & Swagger Dokümantasyon Yolları</h2>
+            </div>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>API Adresi (URL)</th>
+                            <th>Durum Kodu</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in apis %}
+                        <tr>
+                            <td><strong>{{ item.ip }}:{{ item.port }}{{ item.path }}</strong></td>
+                            <td><span class="status-badge" style="background: rgba(59, 130, 246, 0.15); color: var(--accent-blue);">{{ item.status }}</span></td>
                         </tr>
                         {% endfor %}
                     </tbody>

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 import scanner
@@ -29,7 +29,6 @@ try:
 except Exception:
     pass
 
-
 # Tarama sonuçlarını geçici olarak hafızada saklayan değişken
 last_scan_results = {
     "target": "",
@@ -37,12 +36,37 @@ last_scan_results = {
     "scan_mode": "",
     "results": [],
     "subdomains": [],
-    "directories": []
+    "directories": [],
+    "apis": []
 }
+
+# Zamanlanmış görevler listesi
+scheduled_scans = []
+
+async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None):
+    """
+    Arka planda belirli aralıklarla çalışacak zamanlanmış tarama görevi.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        open_ports = []
+        targets = scanner.parse_targets(target)
+        if targets:
+            await scanner.async_scan_manager(
+                targets=targets,
+                ports=scanner.TOP_PORTS[10],
+                timeout=1.0,
+                delay=0,
+                scan_mode="TCP",
+                open_ports=open_ports,
+                max_workers=50
+            )
+            # Tarama tamamlandı mesajını konsola ve loglara yaz
+            print(f"[ZAMANLAYICI] {target} adresi otomatik olarak tarandı. Açık port adeti: {len(open_ports)}")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "error": None})
+    return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "apis": None, "error": None, "scheduled": scheduled_scans})
 
 @app.post("/scan", response_class=HTMLResponse)
 async def scan(
@@ -54,7 +78,9 @@ async def scan(
     udp: bool = Form(False),
     subdomain_scan: bool = Form(False),
     dir_scan: bool = Form(False),
-    brute_force: bool = Form(False)
+    brute_force: bool = Form(False),
+    waf_detect: bool = Form(False),
+    api_scan: bool = Form(False)
 ):
     open_ports = []
     scan_mode = "UDP" if udp else "TCP"
@@ -64,7 +90,7 @@ async def scan(
     targets = scanner.parse_targets(target)
     if not targets:
         error_msg = "Geçersiz hedef adresi girdiniz!"
-        return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "error": error_msg})
+        return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "apis": None, "error": error_msg, "scheduled": scheduled_scans})
     
     # Portları belirle
     if top_ports > 0:
@@ -86,7 +112,8 @@ async def scan(
         scan_mode=scan_mode, 
         open_ports=open_ports, 
         max_workers=100,
-        brute_force=brute_force
+        brute_force=brute_force,
+        waf_detect=waf_detect
     )
     
     # Sonuçları formatla
@@ -117,6 +144,20 @@ async def scan(
                         "path": path,
                         "status": status
                     })
+
+    # Opsiyonel: API & Swagger Keşfi
+    apis_list = []
+    if api_scan:
+        for ip, port, banner, warnings in open_ports:
+            if port in [80, 8080, 443, 8443]:
+                found_apis = await scanner.discover_api_endpoints(ip, port)
+                for path, status in found_apis:
+                    apis_list.append({
+                        "ip": ip,
+                        "port": port,
+                        "path": path,
+                        "status": status
+                    })
                     
     # Sonuçları PDF indirme için sakla
     global last_scan_results
@@ -126,18 +167,38 @@ async def scan(
         "scan_mode": scan_mode,
         "results": results_list,
         "subdomains": subdomains_list,
-        "directories": directories_list
+        "directories": directories_list,
+        "apis": apis_list
     }
         
     return templates.TemplateResponse(request=request, name="index.html", context={
         "results": results_list,
         "subdomains": subdomains_list,
         "directories": directories_list,
+        "apis": apis_list,
         "target": target,
         "ports": ports_str,
         "scan_mode": scan_mode,
-        "error": None
+        "error": None,
+        "scheduled": scheduled_scans
     })
+
+@app.post("/schedule")
+async def schedule(
+    background_tasks: BackgroundTasks,
+    target: str = Form(...),
+    interval: int = Form(...)
+):
+    """
+    Belirtilen hedef için arka plan görevi olarak otomatik tarama kurar.
+    """
+    interval_seconds = interval * 60 # Dakikayı saniyeye çevir
+    background_tasks.add_task(run_scheduled_scan, target, interval_seconds)
+    scheduled_scans.append({
+        "target": target,
+        "interval": interval
+    })
+    return HTMLResponse("<script>alert('Zamanlanmış Tarama Arka Planda Başlatıldı!'); window.location.href='/';</script>")
 
 @app.get("/download/pdf")
 async def download_pdf():
@@ -271,6 +332,31 @@ async def download_pdf():
             ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
         ]))
         story.append(t_dir)
+
+    # API Dokümantasyon Bulguları
+    if last_scan_results.get("apis"):
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("Keşfedilen API ve Swagger Dokümantasyonları", h2_style))
+        api_data = [[
+            Paragraph("API Adresi (URL)", header_cell_style), 
+            Paragraph("Durum Kodu", header_cell_style)
+        ]]
+        for item in last_scan_results["apis"]:
+            api_data.append([
+                Paragraph(f"{item['ip']}:{item['port']}{item['path']}", cell_style), 
+                Paragraph(str(item['status']), cell_style)
+            ])
+        t_api = Table(api_data, colWidths=[400, 140])
+        t_api.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1A365D')),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
+        ]))
+        story.append(t_api)
         
     doc.build(story)
     buffer.seek(0)
