@@ -455,6 +455,51 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports)
                 for w in warnings:
                     print(f"    [{RED}!{RESET}] {RED}{w}{RESET}")
 
+async def resolve_subdomain(subdomain, domain):
+    target = f"{subdomain}.{domain}"
+    try:
+        loop = asyncio.get_running_loop()
+        ip = await loop.run_in_executor(None, socket.gethostbyname, target)
+        return target, ip
+    except Exception:
+        return None
+
+async def discover_subdomains(domain):
+    """
+    Hedef alan adı için yaygın alt alan adlarını (subdomains) tarar.
+    """
+    common_subs = ["www", "mail", "ftp", "admin", "blog", "cpanel", "webmail", "dev", "test", "staging", "api", "vpn", "secure", "db", "mysql", "portal", "support", "shop", "app"]
+    tasks = [resolve_subdomain(sub, domain) for sub in common_subs]
+    results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
+
+def check_url_path(target_ip, port, path, timeout=2.0):
+    try:
+        protocol = "https" if port == 443 else "http"
+        url = f"{protocol}://{target_ip}:{port}{path}"
+        context = ssl._create_unverified_context() if protocol == "https" else None
+        
+        req = urllib.request.Request(url, method="HEAD", headers={'User-Agent': 'Mozilla/5.0'})
+        kwargs = {"context": context} if context else {}
+        
+        with urllib.request.urlopen(req, timeout=timeout, **kwargs) as response:
+            return path, response.status
+    except urllib.error.HTTPError as e:
+        if e.code in [403, 401, 301, 302]:
+            return path, e.code
+    except Exception:
+        pass
+    return None
+
+async def brute_force_directories(target_ip, port):
+    """
+    Açık HTTP/HTTPS portları üzerinde yaygın gizli dizinleri brute-force yöntemiyle tarar.
+    """
+    paths = ["/admin", "/login", "/backup", "/db", "/config", "/wp-admin", "/.git", "/robots.txt", "/index.php", "/api", "/test", "/dev"]
+    tasks = [asyncio.to_thread(check_url_path, target_ip, port, path) for path in paths]
+    results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
+
 async def async_scan_manager(targets, ports, timeout, delay, scan_mode, open_ports, max_workers):
     """
     Tüm asenkron tarama görevlerini koordine eder.
