@@ -4,7 +4,9 @@ from fastapi.templating import Jinja2Templates
 import scanner
 import asyncio
 import os
-from io import BytesIO
+import json
+import csv
+from io import BytesIO, StringIO
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -37,7 +39,8 @@ last_scan_results = {
     "results": [],
     "subdomains": [],
     "directories": [],
-    "apis": []
+    "apis": [],
+    "geolocation": None
 }
 
 # Zamanlanmış görevler listesi
@@ -61,12 +64,11 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
                 open_ports=open_ports,
                 max_workers=50
             )
-            # Tarama tamamlandı mesajını konsola ve loglara yaz
             print(f"[ZAMANLAYICI] {target} adresi otomatik olarak tarandı. Açık port adeti: {len(open_ports)}")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "apis": None, "error": None, "scheduled": scheduled_scans})
+    return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "apis": None, "geolocation": None, "error": None, "scheduled": scheduled_scans})
 
 @app.post("/scan", response_class=HTMLResponse)
 async def scan(
@@ -90,7 +92,7 @@ async def scan(
     targets = scanner.parse_targets(target)
     if not targets:
         error_msg = "Geçersiz hedef adresi girdiniz!"
-        return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "apis": None, "error": error_msg, "scheduled": scheduled_scans})
+        return templates.TemplateResponse(request=request, name="index.html", context={"results": None, "subdomains": None, "directories": None, "apis": None, "geolocation": None, "error": error_msg, "scheduled": scheduled_scans})
     
     # Portları belirle
     if top_ports > 0:
@@ -158,6 +160,11 @@ async def scan(
                         "path": path,
                         "status": status
                     })
+
+    # Coğrafi Konum (IP Geolocation) Sorgula
+    geo_data = None
+    if targets:
+        geo_data = await asyncio.to_thread(scanner.get_ip_geolocation, targets[0])
                     
     # Sonuçları PDF indirme için sakla
     global last_scan_results
@@ -168,7 +175,8 @@ async def scan(
         "results": results_list,
         "subdomains": subdomains_list,
         "directories": directories_list,
-        "apis": apis_list
+        "apis": apis_list,
+        "geolocation": geo_data
     }
         
     return templates.TemplateResponse(request=request, name="index.html", context={
@@ -176,6 +184,7 @@ async def scan(
         "subdomains": subdomains_list,
         "directories": directories_list,
         "apis": apis_list,
+        "geolocation": geo_data,
         "target": target,
         "ports": ports_str,
         "scan_mode": scan_mode,
@@ -192,7 +201,7 @@ async def schedule(
     """
     Belirtilen hedef için arka plan görevi olarak otomatik tarama kurar.
     """
-    interval_seconds = interval * 60 # Dakikayı saniyeye çevir
+    interval_seconds = interval * 60
     background_tasks.add_task(run_scheduled_scan, target, interval_seconds)
     scheduled_scans.append({
         "target": target,
@@ -252,6 +261,12 @@ async def download_pdf():
     story.append(Paragraph(f"<b>Hedef:</b> {last_scan_results['target']}", normal_style))
     story.append(Paragraph(f"<b>Taranan Portlar:</b> {last_scan_results['ports']}", normal_style))
     story.append(Paragraph(f"<b>Tarama Modu:</b> {last_scan_results['scan_mode']}", normal_style))
+    
+    # Konum bilgileri varsa ekle
+    geo = last_scan_results.get("geolocation")
+    if geo:
+        story.append(Paragraph(f"<b>Coğrafi Konum:</b> {geo['city']}, {geo['country']} | <b>ISS (ISP):</b> {geo['isp']}", normal_style))
+        
     story.append(Spacer(1, 15))
     
     # Bulgular Tablosu
@@ -361,3 +376,27 @@ async def download_pdf():
     doc.build(story)
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=portshield_rapor.pdf"})
+
+@app.get("/download/json")
+async def download_json():
+    """
+    Tarama verilerini ham JSON formatında indirmeyi sağlar.
+    """
+    json_bytes = json.dumps(last_scan_results, indent=4, ensure_ascii=False).encode('utf-8')
+    return StreamingResponse(BytesIO(json_bytes), media_type="application/json", headers={"Content-Disposition": "attachment; filename=portshield_rapor.json"})
+
+@app.get("/download/csv")
+async def download_csv():
+    """
+    Tarama verilerini Excel uyumlu Türkçe CSV formatında indirmeyi sağlar.
+    """
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer, delimiter=';')
+    writer.writerow(["IP Adresi", "Port", "Servis / Banner", "Zafiyetler ve Bulgular"])
+    
+    for item in last_scan_results["results"]:
+        warns = " | ".join(item["warnings"]) if item["warnings"] else "Sorun Yok"
+        writer.writerow([item["ip"], item["port"], item["banner"], warns])
+        
+    csv_bytes = csv_buffer.getvalue().encode('utf-8-sig') # BOM ekle
+    return StreamingResponse(BytesIO(csv_bytes), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=portshield_rapor.csv"})

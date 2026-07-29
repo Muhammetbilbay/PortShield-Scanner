@@ -195,6 +195,29 @@
             box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
         }
 
+        .btn-export {
+            background: linear-gradient(135deg, #4b5563, #374151);
+            box-shadow: 0 4px 15px rgba(75, 85, 99, 0.3);
+            margin-top: 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            box-sizing: border-box;
+            color: white;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-left: 10px;
+        }
+
+        .btn-export:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(75, 85, 99, 0.4);
+        }
+
         .error-banner {
             background: rgba(239, 68, 68, 0.15);
             border: 1px solid rgba(239, 68, 68, 0.3);
@@ -289,6 +312,19 @@
         </div>
 
         {% if results is not none %}
+        <!-- Coğrafi Konum Kartı -->
+        {% if geolocation %}
+        <div class="card" style="border-left: 4px solid var(--accent-blue);">
+            <div class="results-header" style="border-left: none; padding-left: 0; margin-bottom: 10px;">
+                <h2>Hedef Coğrafi Konum & ISS Bilgileri</h2>
+            </div>
+            <p style="margin: 0; color: var(--text-secondary); line-height: 1.6;">
+                🌍 <strong>Ülke/Şehir:</strong> {{ geolocation.city }}, {{ geolocation.country }} <br/>
+                🏢 <strong>İnternet Servis Sağlayıcısı (ISP):</strong> {{ geolocation.isp }} ({{ geolocation.org }})
+            </p>
+        </div>
+        {% endif %}
+
         <!-- Canlı İstatistik Kartları -->
         <div class="stats-grid">
             <div class="stat-card">
@@ -447,7 +483,11 @@
         <div class="card">
             <div class="results-header">
                 <h2>Tarama Bulguları (Mod: {{ scan_mode }})</h2>
-                <a href="/download/pdf" class="btn btn-pdf" style="width: auto; padding: 10px 20px;">PDF Raporu İndir</a>
+                <div>
+                    <a href="/download/pdf" class="btn btn-pdf" style="width: auto; padding: 10px 20px; margin-top:0;">PDF Raporu</a>
+                    <a href="/download/csv" class="btn-export">CSV İndir</a>
+                    <a href="/download/json" class="btn-export">JSON İndir</a>
+                </div>
             </div>
             
             {% if results %}

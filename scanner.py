@@ -6,6 +6,7 @@ import json
 import ipaddress
 import urllib.request
 import urllib.parse
+import datetime
 import ssl
 import asyncio
 import subprocess
@@ -293,6 +294,49 @@ async def discover_api_endpoints(target_ip, port):
     results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
 
+def get_ip_geolocation(ip_address):
+    """
+    Hedef IP adresinin coğrafi konumunu ve ISS (ISP) bilgilerini sorgular.
+    """
+    try:
+        url = f"http://ip-api.com/json/{urllib.parse.quote(ip_address)}?fields=status,country,city,isp,org,as"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3.0) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                if data.get("status") == "success":
+                    return {
+                        "country": data.get("country", "Bilinmiyor"),
+                        "city": data.get("city", "Bilinmiyor"),
+                        "isp": data.get("isp", "Bilinmiyor"),
+                        "org": data.get("org", "Bilinmiyor")
+                    }
+    except Exception:
+        pass
+    return None
+
+def check_ssl_expiry_days(target_ip, port):
+    """
+    SSL sertifikasının son geçerlilik tarihine kalan gün sayısını hesaplar.
+    """
+    try:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        with socket.create_connection((target_ip, port), timeout=2.0) as sock:
+            with context.wrap_socket(sock, server_hostname=target_ip) as ssock:
+                cert = ssock.getpeercert()
+                # notAfter zaman damgasını parse et: örn 'May 20 12:00:00 2026 GMT'
+                not_after_str = cert.get('notAfter')
+                if not_after_str:
+                    expiry_date = datetime.datetime.strptime(not_after_str, '%b %d %H:%M:%S %Y %Z')
+                    remaining = (expiry_date - datetime.datetime.utcnow()).days
+                    return remaining
+    except Exception:
+        pass
+    return None
+
+
 def scan_port(target_ip, port, timeout):
     """
     Hedef IP üzerindeki tek bir portu tarar. Geriye (port, acik_mi, banner) döndürür.
@@ -520,9 +564,19 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports,
             os_info = await asyncio.to_thread(estimate_os_by_ping, target_ip)
             probe_info.append(f"İşletim Sistemi Tahmini: {os_info}")
             
-            if port == 443:
+             if port == 443:
                 info = await asyncio.to_thread(probe_ssl_details, target_ip, port)
                 probe_info.append(info)
+                
+                # SSL Geçerlilik ve Gün Kontrolü
+                remaining_days = await asyncio.to_thread(check_ssl_expiry_days, target_ip, port)
+                if remaining_days is not None:
+                    if remaining_days < 0:
+                        warnings.append("KRİTİK GÜVENLİK UYARISI: SSL Sertifikasının süresi dolmuş!")
+                    elif remaining_days <= 15:
+                        warnings.append(f"GÜVENLİK UYARISI: SSL Sertifikası son kullanma tarihine {remaining_days} gün kaldı! Yenilenmesi önerilir.")
+                    else:
+                        probe_info.append(f"SSL Sertifikası Güvenli ({remaining_days} gün kaldı)")
             elif port == 22:
                 info = await asyncio.to_thread(probe_ssh_details, target_ip, port)
                 probe_info.append(info)
