@@ -2,6 +2,8 @@ import socket
 import sys
 import time
 import argparse
+import json
+import ipaddress
 from threading import Thread, Lock
 from queue import Queue
 
@@ -88,22 +90,77 @@ def scan_port(target_ip, port, timeout):
     except Exception:
         return port, False, None
 
-def worker(queue, target_ip, timeout, open_ports):
+def analyze_banner(banner):
     """
-    Kuyruktan portları çekip tarayan işçi (worker) iş parçacığı.
+    Banner bilgisini analiz eder ve bilinen eski veya riskli servislere dair uyarılar üretir.
+    """
+    warnings = []
+    if not banner or banner == "Bilinmeyen Servis":
+        return warnings
+        
+    banner_lower = banner.lower()
+    
+    # OpenSSH Analizi
+    if "openssh" in banner_lower:
+        try:
+            version_str = banner_lower.split("openssh_")[1].split()[0]
+            # Temel versiyon sayılarını al
+            version_num = float(''.join([c for c in version_str if c.isdigit() or c == '.'])[:3])
+            if version_num < 8.5:
+                warnings.append(f"Zafiyet Riski: Eski OpenSSH sürümü ({version_str}). Bilinen CVE zafiyetleri içerebilir. Güncelleme önerilir.")
+        except Exception:
+            pass
+            
+    # Apache Analizi
+    elif "apache" in banner_lower:
+        try:
+            version_str = banner_lower.split("apache/")[1].split()[0]
+            version_parts = [int(p) for p in ''.join([c for c in version_str if c.isdigit() or c == '.']).split('.') if p]
+            if len(version_parts) >= 3 and version_parts[0] == 2 and version_parts[1] == 4 and version_parts[2] < 49:
+                warnings.append(f"Zafiyet Riski: Eski Apache HTTPD sürümü ({version_str}). CVE-2021-41773 ve CVE-2021-42013 zafiyetlerine karşı korumasız olabilir.")
+        except Exception:
+            pass
+
+    # Nginx Analizi
+    elif "nginx" in banner_lower:
+        if "1.18" in banner_lower or "1.14" in banner_lower or "1.16" in banner_lower:
+            warnings.append("Bilgi: Potansiyel eski Nginx sürümü tespit edildi.")
+
+    # FTP / vsFTPd
+    elif "vsftpd" in banner_lower:
+        if "2.3.4" in banner_lower:
+            warnings.append("KRİTİK HATA: vsFTPd 2.3.4 Arka Kapı (Backdoor) sürümü olabilir! (CVE-2011-2523)")
+
+    # SMB
+    elif banner == "SMB":
+        warnings.append("Bilgi: SMB servisi açık. MS17-010 (EternalBlue) zafiyetine karşı yama durumunu kontrol edin.")
+        
+    return warnings
+
+
+def worker(queue, timeout, open_ports, delay):
+    """
+    Kuyruktan (IP, port) ikililerini çekip tarayan işçi (worker) iş parçacığı.
     """
     while not queue.empty():
         try:
-            port = queue.get_nowait()
+            target_ip, port = queue.get_nowait()
         except Exception:
             break
+            
+        # İstekler arası gecikme (milisaniye -> saniye)
+        if delay > 0:
+            time.sleep(delay / 1000.0)
             
         port, is_open, banner = scan_port(target_ip, port, timeout)
         
         if is_open:
-            open_ports.append((port, banner))
+            warnings = analyze_banner(banner)
+            open_ports.append((target_ip, port, banner, warnings))
             with print_lock:
-                print(f"[{GREEN}*{RESET}] Port {BLUE}{port:<5}{RESET} -> {GREEN}AÇIK{RESET} | Servis: {YELLOW}{banner}{RESET}")
+                print(f"[{GREEN}*{RESET}] {target_ip:<15} -> Port {BLUE}{port:<5}{RESET} -> {GREEN}AÇIK{RESET} | Servis: {YELLOW}{banner}{RESET}")
+                for w in warnings:
+                    print(f"    [{RED}!{RESET}] {RED}{w}{RESET}")
                 
         queue.task_done()
 
@@ -125,26 +182,113 @@ def parse_ports(port_arg):
         sys.exit(1)
     return ports
 
+def parse_targets(target_arg):
+    """
+    Hedef parametresini çözümler. Tek IP, alan adı, CIDR (örn: 192.168.1.0/24) 
+    veya IP aralığı (örn: 192.168.1.1-192.168.1.10) destekler.
+    Geriye bir IP listesi döndürür.
+    """
+    targets = []
+    try:
+        # Virgülle ayrılmış liste desteği
+        if ',' in target_arg:
+            parts = [p.strip() for p in target_arg.split(',')]
+            for part in parts:
+                targets.extend(parse_targets(part))
+        # CIDR desteği (örn: 192.168.1.0/24)
+        elif '/' in target_arg:
+            net = ipaddress.ip_network(target_arg, strict=False)
+            if net.num_addresses > 2:
+                targets.extend([str(ip) for ip in net.hosts()])
+            else:
+                targets.extend([str(ip) for ip in net])
+        # IP Aralığı desteği (örn: 192.168.1.1-10 veya 192.168.1.1-192.168.1.10)
+        elif '-' in target_arg and not target_arg.replace('-', '').isalpha():
+            start_str, end_str = target_arg.split('-')
+            start_str = start_str.strip()
+            end_str = end_str.strip()
+            
+            if '.' not in end_str:
+                base_ip = '.'.join(start_str.split('.')[:-1])
+                end_str = f"{base_ip}.{end_str}"
+                
+            start_ip = ipaddress.ip_address(start_str)
+            end_ip = ipaddress.ip_address(end_str)
+            
+            curr = start_ip
+            while curr <= end_ip:
+                targets.append(str(curr))
+                curr += 1
+        else:
+            # Tekil IP veya Alan Adı
+            try:
+                ip = socket.gethostbyname(target_arg)
+                targets.append(ip)
+            except socket.gaierror:
+                print(f"[{RED}!{RESET}] Hata: '{target_arg}' alan adı veya IP adresi çözümlenemedi.")
+    except Exception as e:
+        print(f"[{RED}!{RESET}] Hata (Hedef Çözümleme): {e}")
+        sys.exit(1)
+        
+    seen = set()
+    return [x for x in targets if not (x in seen or seen.add(x))]
+
+def save_results(file_path, targets, open_ports, duration):
+    """
+    Tarama sonuçlarını uzantısına göre (JSON veya TXT/düz metin) dosyaya kaydeder.
+    """
+    try:
+        if file_path.endswith('.json'):
+            data = {
+                "targets": targets,
+                "scan_date": time.strftime('%Y-%m-%d %H:%M:%S'),
+                "duration_seconds": round(duration, 2),
+                "open_ports_count": len(open_ports),
+                "open_ports": [{"ip": ip, "port": port, "banner": banner, "warnings": warnings} for ip, port, banner, warnings in open_ports]
+            }
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+        else:
+            # Varsayılan olarak TXT formatında kaydet
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write("-" * 60 + "\n")
+                f.write(f" PortShield Tarama Raporu - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("-" * 60 + "\n")
+                f.write(f" Hedef(ler)    : {', '.join(targets[:5])}{'...' if len(targets) > 5 else ''}\n")
+                f.write(f" Süre          : {duration:.2f} saniye\n")
+                f.write(f" Açık Portlar  : {len(open_ports)} adet\n")
+                f.write("-" * 60 + "\n")
+                for ip, port, banner, warnings in open_ports:
+                    f.write(f" Hedef: {ip:<15} | Port {port:<5} | Servis: {banner}\n")
+                    for w in warnings:
+                        f.write(f"    [!] UYARI: {w}\n")
+                f.write("-" * 60 + "\n")
+        print(f"[{GREEN}*{RESET}] Sonuçlar başarıyla kaydedildi: {BLUE}{file_path}{RESET}")
+    except Exception as e:
+        print(f"[{RED}!{RESET}] Sonuçlar kaydedilirken hata oluştu: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="PortShield: Hızlı Çoklu İş Parçacıklı Port Tarayıcı ve Banner Yakalayıcı")
     parser.add_argument("-t", "--target", required=True, help="Hedef makine (IP veya alan adı)")
     parser.add_argument("-p", "--ports", default="1-1024", help="Port aralığı (örn: 20-100) veya virgülle ayrılmış liste (varsayılan: 1-1024)")
     parser.add_argument("-w", "--workers", type=int, default=100, help="Çalışacak iş parçacığı (thread) sayısı (varsayılan: 100)")
     parser.add_argument("--timeout", type=float, default=1.0, help="Soket bağlantı zaman aşımı süresi (saniye) (varsayılan: 1.0)")
+    parser.add_argument("-o", "--output", help="Tarama sonuçlarının kaydedileceği dosya yolu (örn: sonuc.json veya sonuc.txt)")
+    parser.add_argument("--delay", type=int, default=0, help="Her istek arasındaki gecikme süresi (milisaniye cinsinden, varsayılan: 0)")
     
     args = parser.parse_args()
     
-    target_host = args.target
+    target_arg = args.target
     port_range_str = args.ports
     thread_count = args.workers
     timeout = args.timeout
 
-    # Hedef alan adını IP adresine çöz çözümle
-    try:
-        print(f"[{BLUE}i{RESET}] Hedef çözümleniyor: {target_host}...")
-        target_ip = socket.gethostbyname(target_host)
-    except socket.gaierror:
-        print(f"[{RED}!{RESET}] Hata: '{target_host}' alan adı çözümlenemedi.")
+    # Hedefleri çözümle
+    print(f"[{BLUE}i{RESET}] Hedef(ler) çözümleniyor: {target_arg}...")
+    targets = parse_targets(target_arg)
+    
+    if not targets:
+        print(f"[{RED}!{RESET}] Hata: Taranacak geçerli bir hedef bulunamadı.")
         sys.exit(1)
 
     ports_to_scan = parse_ports(port_range_str)
@@ -152,8 +296,8 @@ def main():
     print("-" * 60)
     print(f" {GREEN}PortShield Port Tarayıcı & Banner Yakalayıcı{RESET}")
     print("-" * 60)
-    print(f" Hedef Adres   : {target_host} ({target_ip})")
-    print(f" Taranacak Port: {port_range_str} ({len(ports_to_scan)} port)")
+    print(f" Hedef Sayısı  : {len(targets)} cihaz ({', '.join(targets[:3])}{'...' if len(targets) > 3 else ''})")
+    print(f" Taranacak Port: {port_range_str} ({len(ports_to_scan)} port/cihaz)")
     print(f" Thread Sayısı : {thread_count}")
     print(f" Zaman Aşımı   : {timeout}s")
     print(f" Başlangıç     : {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -161,19 +305,21 @@ def main():
 
     start_time = time.time()
     
-    # Kuyruk yapısını oluştur ve portları ekle
+    # Kuyruk yapısını oluştur ve (IP, port) ikililerini ekle
     queue = Queue()
-    for port in ports_to_scan:
-        queue.put(port)
+    total_scans = 0
+    for ip in targets:
+        for port in ports_to_scan:
+            queue.put((ip, port))
+            total_scans += 1
         
     open_ports = []
     threads = []
     
     # İş parçacıklarını başlat
-    # Port sayısı thread sayısından azsa sadece port sayısı kadar thread başlat
-    num_threads = min(thread_count, len(ports_to_scan))
+    num_threads = min(thread_count, total_scans)
     for _ in range(num_threads):
-        t = Thread(target=worker, args=(queue, target_ip, timeout, open_ports))
+        t = Thread(target=worker, args=(queue, timeout, open_ports, args.delay))
         t.daemon = True
         t.start()
         threads.append(t)
@@ -188,6 +334,9 @@ def main():
     print(f" Tarama {duration:.2f} saniyede tamamlandı.")
     print(f" Toplam {len(open_ports)} adet açık port bulundu.")
     print("-" * 60)
+
+    if args.output:
+        save_results(args.output, targets, open_ports, duration)
 
 if __name__ == "__main__":
     main()

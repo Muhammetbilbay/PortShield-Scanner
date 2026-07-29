@@ -1,0 +1,17 @@
+{
+    "target_host": "127.0.0.1",
+    "target_ip": "127.0.0.1",
+    "scan_date": "2026-07-29 13:25:53",
+    "duration_seconds": 1.51,
+    "open_ports_count": 2,
+    "open_ports": [
+        {
+            "port": 135,
+            "banner": "Bilinmeyen Servis"
+        },
+        {
+            "port": 445,
+            "banner": "SMB"
+        }
+    ]
+}
