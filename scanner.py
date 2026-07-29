@@ -564,7 +564,7 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports,
             os_info = await asyncio.to_thread(estimate_os_by_ping, target_ip)
             probe_info.append(f"İşletim Sistemi Tahmini: {os_info}")
             
-             if port == 443:
+            if port == 443:
                 info = await asyncio.to_thread(probe_ssl_details, target_ip, port)
                 probe_info.append(info)
                 
