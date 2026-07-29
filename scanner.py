@@ -8,6 +8,8 @@ import urllib.request
 import urllib.parse
 import ssl
 import asyncio
+import subprocess
+import re
 from threading import Thread, Lock
 from queue import Queue
 
@@ -127,6 +129,69 @@ def probe_ssl_details(target_ip, port):
                 return f"SSL/TLS Aktif | Cipher: {cipher[0]} ({cipher[2]} bit)"
     except Exception as e:
         return f"SSL Detayı Alınamadı: {str(e)[:50]}"
+
+def check_http_security_headers(target_ip, port):
+    """
+    Hedef porttaki temel HTTP güvenlik başlıklarını denetler. Eksik olanları liste halinde döner.
+    """
+    warnings = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect((target_ip, port))
+        s.send(b"HEAD / HTTP/1.1\r\nHost: " + target_ip.encode() + b"\r\nConnection: close\r\n\r\n")
+        response = s.recv(2048).decode('utf-8', errors='ignore')
+        s.close()
+        
+        headers = {}
+        for line in response.split('\r\n')[1:]:
+            if ': ' in line:
+                k, v = line.split(': ', 1)
+                headers[k.lower()] = v.strip()
+                
+        # Kontrol edilecek kritik güvenlik başlıkları
+        security_checks = {
+            "x-frame-options": "Güvenlik Eksiği: 'X-Frame-Options' başlığı eksik. (Clickjacking riskine açık)",
+            "content-security-policy": "Güvenlik Eksiği: 'Content-Security-Policy' (CSP) başlığı eksik. (XSS riskine açık)",
+            "strict-transport-security": "Güvenlik Eksiği: 'Strict-Transport-Security' (HSTS) başlığı eksik. (Güvensiz HTTP bağlantı riski)",
+            "x-content-type-options": "Güvenlik Eksiği: 'X-Content-Type-Options' başlığı eksik. (MIME Sniffing riski)"
+        }
+        
+        for header, warning_msg in security_checks.items():
+            if header not in headers:
+                warnings.append(warning_msg)
+    except Exception:
+        pass
+    return warnings
+
+
+def estimate_os_by_ping(target_ip):
+    """
+    Hedefe asenkron benzeri ping atarak dönen TTL değerine göre İşletim Sistemi tahmini yapar.
+    """
+    try:
+        # Windows ping komutunu kullan (1 paket, 2 saniye timeout)
+        cmd = ["ping", "-n", "1", "-w", "2000", target_ip]
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        
+        output = subprocess.check_output(cmd, startupinfo=startupinfo, stderr=subprocess.STDOUT, text=True)
+        
+        # TTL değerini regex ile bul (örn: TTL=64 veya ttl=128)
+        ttl_match = re.search(r"ttl=(\d+)", output, re.IGNORECASE)
+        if ttl_match:
+            ttl = int(ttl_match.group(1))
+            if ttl <= 64:
+                return f"Linux / Unix (TTL={ttl})"
+            elif ttl <= 128:
+                return f"Windows (TTL={ttl})"
+            elif ttl <= 254:
+                return f"Solaris / Cisco Network Device (TTL={ttl})"
+            else:
+                return f"Bilinmeyen OS (TTL={ttl})"
+    except Exception:
+        pass
+    return "OS Tahmin Edilemedi (Ping Yanıt Vermedi)"
 
 def probe_ssh_details(target_ip, port):
     """
@@ -363,6 +428,11 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports)
             
             # Gelişmiş Probing Adımları
             probe_info = []
+            
+            # İşletim Sistemi Tahmini (Her açık port bulduğumuzda bir kere tetiklenir)
+            os_info = await asyncio.to_thread(estimate_os_by_ping, target_ip)
+            probe_info.append(f"İşletim Sistemi Tahmini: {os_info}")
+            
             if port == 443:
                 info = await asyncio.to_thread(probe_ssl_details, target_ip, port)
                 probe_info.append(info)
@@ -372,6 +442,12 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports)
                 
             for info in probe_info:
                 warnings.append(f"Protokol Keşfi -> {info}")
+                
+            # HTTP/HTTPS için Güvenlik Başlıkları Analizi
+            if port in [80, 8080, 443]:
+                header_warnings = await asyncio.to_thread(check_http_security_headers, target_ip, port)
+                for hw in header_warnings:
+                    warnings.append(hw)
                 
             open_ports.append((target_ip, port, banner, warnings))
             with print_lock:
