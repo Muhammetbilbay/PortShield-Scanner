@@ -4,6 +4,9 @@ import time
 import argparse
 import json
 import ipaddress
+import urllib.request
+import urllib.parse
+import ssl
 import asyncio
 from threading import Thread, Lock
 from queue import Queue
@@ -108,6 +111,36 @@ def scan_udp_port(target_ip, port, timeout):
         s.close()
         return port, False, None
 
+def probe_ssl_details(target_ip, port):
+    """
+    Hedef porttaki SSL/TLS sertifika bilgilerini (ihraççı, geçerlilik) çekmeye çalışır.
+    """
+    try:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        with socket.create_connection((target_ip, port), timeout=2.0) as sock:
+            with context.wrap_socket(sock, server_hostname=target_ip) as ssock:
+                cert = ssock.getpeercert(binary_form=True)
+                # Basit bir sertifika özeti veya el sıkışma doğrulaması döndür
+                cipher = ssock.cipher()
+                return f"SSL/TLS Aktif | Cipher: {cipher[0]} ({cipher[2]} bit)"
+    except Exception as e:
+        return f"SSL Detayı Alınamadı: {str(e)[:50]}"
+
+def probe_ssh_details(target_ip, port):
+    """
+    SSH servisinde desteklenen temel başlık bilgilerini okur.
+    """
+    try:
+        with socket.create_connection((target_ip, port), timeout=2.0) as sock:
+            sock.settimeout(2.0)
+            banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
+            return f"SSH Sürümü: {banner}"
+    except Exception as e:
+        return f"SSH Detayı Alınamadı: {str(e)[:50]}"
+
+
 def scan_port(target_ip, port, timeout):
     """
     Hedef IP üzerindeki tek bir portu tarar. Geriye (port, acik_mi, banner) döndürür.
@@ -169,6 +202,71 @@ async def scan_port_async(target_ip, port, timeout):
     except Exception:
         return port, False, None
 
+
+def fetch_cves_sync(product_name):
+    """
+    Belirli bir ürün adı için CIRCL CVE API üzerinden senkron arama yapar.
+    """
+    try:
+        url = f"https://cve.circl.lu/api/search/{urllib.parse.quote(product_name)}/{urllib.parse.quote(product_name)}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                results = data.get("results", {})
+                nvd_data = results.get("nvd", [])
+                
+                parsed_cves = []
+                for item in nvd_data[:3]:
+                    if isinstance(item, list) and len(item) > 1:
+                        cve_id = item[0].upper()
+                        details = item[1]
+                        summary = "Açıklama bulunamadı."
+                        try:
+                            descriptions = details.get('containers', {}).get('cna', {}).get('descriptions', [])
+                            if descriptions:
+                                summary = descriptions[0].get('value', summary)
+                        except Exception:
+                            pass
+                        parsed_cves.append(f"{cve_id}: {summary[:120]}...")
+                return parsed_cves
+    except Exception:
+        pass
+    return []
+
+async def fetch_cves_async(product_name):
+    """
+    Asenkron olarak CVE sorgusu yapar.
+    """
+    return await asyncio.to_thread(fetch_cves_sync, product_name)
+
+def extract_product_for_cve(banner):
+    """
+    Banner bilgisinden CVE araması için ürün adını çıkarır.
+    """
+    banner_lower = banner.lower()
+    if "openssh" in banner_lower:
+        return "openssh"
+    elif "apache" in banner_lower:
+        return "apache"
+    elif "nginx" in banner_lower:
+        return "nginx"
+    elif "vsftpd" in banner_lower:
+        return "vsftpd"
+    return None
+
+async def analyze_banner_async(banner):
+    """
+    Banner bilgisini hem yerel kurallarla hem de canlı API sorgusuyla analiz eder.
+    """
+    warnings = analyze_banner(banner)
+    product = extract_product_for_cve(banner)
+    if product:
+        # Canlı zafiyet sorgusu yap
+        cves = await fetch_cves_async(product)
+        for cve in cves:
+            warnings.append(f"Canlı CVE Tespit Edildi -> {cve}")
+    return warnings
 
 def analyze_banner(banner):
     """
@@ -261,7 +359,20 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports)
             port, is_open, banner = await scan_port_async(target_ip, port, timeout)
             
         if is_open:
-            warnings = analyze_banner(banner)
+            warnings = await analyze_banner_async(banner)
+            
+            # Gelişmiş Probing Adımları
+            probe_info = []
+            if port == 443:
+                info = await asyncio.to_thread(probe_ssl_details, target_ip, port)
+                probe_info.append(info)
+            elif port == 22:
+                info = await asyncio.to_thread(probe_ssh_details, target_ip, port)
+                probe_info.append(info)
+                
+            for info in probe_info:
+                warnings.append(f"Protokol Keşfi -> {info}")
+                
             open_ports.append((target_ip, port, banner, warnings))
             with print_lock:
                 print(f"[{GREEN}*{RESET}] {target_ip:<15} -> Port {BLUE}{port:<5}{RESET} -> {GREEN}AÇIK{RESET} | Servis: {YELLOW}{banner}{RESET}")
