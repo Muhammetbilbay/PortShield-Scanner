@@ -9,9 +9,26 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 app = FastAPI(title="PortShield Scanner Web UI")
 templates = Jinja2Templates(directory="templates")
+
+# Türkçe karakter desteği için Arial yazı tipini sisteme kaydet
+pdf_font = 'Helvetica'
+pdf_font_bold = 'Helvetica-Bold'
+try:
+    font_path = "C:\\Windows\\Fonts\\arial.ttf"
+    font_bold_path = "C:\\Windows\\Fonts\\arialbd.ttf"
+    if os.path.exists(font_path) and os.path.exists(font_bold_path):
+        pdfmetrics.registerFont(TTFont('Arial', font_path))
+        pdfmetrics.registerFont(TTFont('Arial-Bold', font_bold_path))
+        pdf_font = 'Arial'
+        pdf_font_bold = 'Arial-Bold'
+except Exception:
+    pass
+
 
 # Tarama sonuçlarını geçici olarak hafızada saklayan değişken
 last_scan_results = {
@@ -123,7 +140,6 @@ async def scan(
 @app.get("/download/pdf")
 async def download_pdf():
     buffer = BytesIO()
-    # Kenar boşlukları ayarlı döküman oluştur
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     story = []
     
@@ -131,6 +147,7 @@ async def download_pdf():
     title_style = ParagraphStyle(
         'TitleStyle',
         parent=styles['Heading1'],
+        fontName=pdf_font_bold,
         fontSize=24,
         textColor=colors.HexColor('#1A365D'),
         spaceAfter=15
@@ -138,34 +155,66 @@ async def download_pdf():
     h2_style = ParagraphStyle(
         'H2Style',
         parent=styles['Heading2'],
+        fontName=pdf_font_bold,
         fontSize=16,
         textColor=colors.HexColor('#2B6CB0'),
         spaceBefore=15,
         spaceAfter=10
     )
-    normal_style = styles['Normal']
+    normal_style = ParagraphStyle(
+        'NormalStyle',
+        parent=styles['Normal'],
+        fontName=pdf_font,
+        fontSize=10,
+        textColor=colors.HexColor('#2D3748'),
+        spaceAfter=5
+    )
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=styles['Normal'],
+        fontName=pdf_font,
+        fontSize=9,
+        leading=12
+    )
+    header_cell_style = ParagraphStyle(
+        'HeaderCellStyle',
+        parent=styles['Normal'],
+        fontName=pdf_font_bold,
+        fontSize=10,
+        textColor=colors.white
+    )
     
     # Rapor Başlığı
     story.append(Paragraph("PortShield Sızma Testi Raporu", title_style))
-    story.append(Paragraph(f"Hedef: {last_scan_results['target']}", normal_style))
-    story.append(Paragraph(f"Taranan Portlar: {last_scan_results['ports']}", normal_style))
-    story.append(Paragraph(f"Tarama Modu: {last_scan_results['scan_mode']}", normal_style))
+    story.append(Paragraph(f"<b>Hedef:</b> {last_scan_results['target']}", normal_style))
+    story.append(Paragraph(f"<b>Taranan Portlar:</b> {last_scan_results['ports']}", normal_style))
+    story.append(Paragraph(f"<b>Tarama Modu:</b> {last_scan_results['scan_mode']}", normal_style))
     story.append(Spacer(1, 15))
     
     # Bulgular Tablosu
     story.append(Paragraph("Açık Port Bulguları", h2_style))
-    table_data = [["IP Adresi", "Port", "Servis", "Analiz / Uyarılar"]]
+    table_data = [[
+        Paragraph("IP Adresi", header_cell_style), 
+        Paragraph("Port", header_cell_style), 
+        Paragraph("Servis", header_cell_style), 
+        Paragraph("Analiz / Uyarılar", header_cell_style)
+    ]]
     for item in last_scan_results["results"]:
-        warns = "\n".join(item["warnings"]) if item["warnings"] else "Temiz / Sorun yok"
-        table_data.append([item["ip"], str(item["port"]), item["banner"], warns])
+        warns = "<br/>".join(item["warnings"]) if item["warnings"] else "Temiz / Sorun yok"
+        table_data.append([
+            Paragraph(item["ip"], cell_style),
+            Paragraph(str(item["port"]), cell_style),
+            Paragraph(item["banner"], cell_style),
+            Paragraph(warns, cell_style)
+        ])
         
     t = Table(table_data, colWidths=[100, 50, 150, 240])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2B6CB0')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOTTOMPADDING', (0,0), (-1,0), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
         ('GRID', (0,0), (-1,-1), 1, colors.grey),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
     ]))
@@ -175,14 +224,24 @@ async def download_pdf():
     if last_scan_results["subdomains"]:
         story.append(Spacer(1, 15))
         story.append(Paragraph("Keşfedilen Alt Alan Adları (Subdomains)", h2_style))
-        sub_data = [["Subdomain", "IP Adresi"]]
+        sub_data = [[
+            Paragraph("Subdomain", header_cell_style), 
+            Paragraph("IP Adresi", header_cell_style)
+        ]]
         for sub, ip in last_scan_results["subdomains"]:
-            sub_data.append([sub, ip])
+            sub_data.append([
+                Paragraph(sub, cell_style), 
+                Paragraph(ip, cell_style)
+            ])
         t_sub = Table(sub_data, colWidths=[270, 270])
         t_sub.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2D3748')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
             ('GRID', (0,0), (-1,-1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
         ]))
         story.append(t_sub)
         
@@ -190,14 +249,24 @@ async def download_pdf():
     if last_scan_results["directories"]:
         story.append(Spacer(1, 15))
         story.append(Paragraph("Keşfedilen Gizli Web Dizinleri", h2_style))
-        dir_data = [["URL", "Durum Kodu"]]
+        dir_data = [[
+            Paragraph("URL", header_cell_style), 
+            Paragraph("Durum Kodu", header_cell_style)
+        ]]
         for item in last_scan_results["directories"]:
-            dir_data.append([f"{item['ip']}:{item['port']}{item['path']}", str(item['status'])])
+            dir_data.append([
+                Paragraph(f"{item['ip']}:{item['port']}{item['path']}", cell_style), 
+                Paragraph(str(item['status']), cell_style)
+            ])
         t_dir = Table(dir_data, colWidths=[400, 140])
         t_dir.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2D3748')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
             ('GRID', (0,0), (-1,-1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
         ]))
         story.append(t_dir)
         
