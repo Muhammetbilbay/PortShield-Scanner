@@ -104,15 +104,15 @@
             margin-bottom: 20px;
         }
 
-        .form-grid-three {
+        .schedule-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
+            grid-template-columns: repeat(2, 1fr);
             gap: 20px;
             margin-bottom: 20px;
         }
 
         @media (max-width: 768px) {
-            .form-grid, .form-grid-three {
+            .form-grid, .schedule-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -120,6 +120,16 @@
         .form-group {
             display: flex;
             flex-direction: column;
+        }
+
+        .form-group-full {
+            grid-column: span 2;
+        }
+
+        @media (max-width: 768px) {
+            .form-group-full {
+                grid-column: span 1;
+            }
         }
 
         .form-group label {
@@ -338,21 +348,29 @@
                 <h2>Otomatik Zamanlanmış Tarama Kur</h2>
             </div>
             <form action="/schedule" method="POST">
-                <div class="form-grid-three">
+                <div class="schedule-grid">
                     <div class="form-group">
                         <label for="sched_target">Hedef IP / Alan Adı</label>
                         <input type="text" id="sched_target" name="target" required placeholder="Örn: scanme.nmap.org">
                     </div>
                     <div class="form-group">
                         <label for="interval">Tarama Sıklığı (Dakika)</label>
-                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika">
+                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika cinsinden sıklık">
                     </div>
                     <div class="form-group">
-                        <label for="email">Rapor Gönderilecek E-posta (İsteğe Bağlı)</label>
-                        <input type="email" id="email" name="email" placeholder="Örn: bilbay172034@gmail.com">
+                        <label for="sender_email">Gönderici Gmail Adresi</label>
+                        <input type="email" id="sender_email" name="sender_email" required placeholder="Örn: gönderici@gmail.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="sender_password">Gmail Uygulama Şifresi (16 Haneli)</label>
+                        <input type="password" id="sender_password" name="sender_password" required placeholder="Örn: abcd efgh ijkl mnop">
+                    </div>
+                    <div class="form-group form-group-full">
+                        <label for="email">Raporun Gönderileceği Alıcı E-posta</label>
+                        <input type="email" id="email" name="email" required placeholder="Örn: alici@gmail.com">
                     </div>
                 </div>
-                <button type="submit" class="btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 15px rgba(245,158,11,0.3);">Arka Plan Zamanlayıcıyı Kur</button>
+                <button type="submit" class="btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 15px rgba(245,158,11,0.3); margin-top: 10px;">Arka Plan Zamanlayıcıyı Kur</button>
             </form>
         </div>
 

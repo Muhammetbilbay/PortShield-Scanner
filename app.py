@@ -35,12 +35,9 @@ try:
 except Exception:
     pass
 
-# SMTP E-posta Ayarları (Zamanlanmış tarama sonuçlarının e-posta ile iletilmesi için)
-# Lütfen Gmail için 16 haneli Uygulama Şifrenizi (App Password) buraya giriniz.
+# Varsayılan SMTP Sunucusu Ayarları (Değiştirilebilir)
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "bilbay172034@gmail.com"
-SMTP_PASSWORD = "" # Buraya Google Hesap Ayarları -> Güvenlik altından alacağınız uygulama şifresini yazın
 
 # Tarama sonuçlarını geçici olarak hafızada saklayan değişken
 last_scan_results = {
@@ -200,17 +197,17 @@ def generate_pdf_bytes(scan_data):
     doc.build(story)
     return buffer.getvalue()
 
-def send_email_with_pdf(recipient_email, target, pdf_data):
+def send_email_with_pdf(sender_email, sender_password, recipient_email, target, pdf_data):
     """
-    SMTP protokolünü kullanarak PDF raporunu belirtilen adrese e-posta olarak gönderir.
+    SMTP protokolünü kullanarak PDF raporunu dinamik kimlik bilgileriyle e-posta olarak gönderir.
     """
-    if not SMTP_PASSWORD:
-        print("[SMTP HATA] SMTP şifresi app.py içinde ayarlanmadığından e-posta gönderilemedi.")
+    if not sender_email or not sender_password:
+        print("[SMTP HATA] SMTP kimlik bilgileri eksik olduğu için e-posta gönderilemedi.")
         return False
         
     try:
         msg = MIMEMultipart()
-        msg['From'] = SMTP_USER
+        msg['From'] = sender_email
         msg['To'] = recipient_email
         msg['Subject'] = f"PortShield Zamanlanmış Tarama Raporu: {target}"
         
@@ -227,8 +224,8 @@ def send_email_with_pdf(recipient_email, target, pdf_data):
         # SMTP sunucu bağlantısı
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, recipient_email, msg.as_string())
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, recipient_email, msg.as_string())
         server.quit()
         print(f"[SMTP BAŞARILI] E-posta başarıyla gönderildi: {recipient_email}")
         return True
@@ -236,7 +233,7 @@ def send_email_with_pdf(recipient_email, target, pdf_data):
         print(f"[SMTP HATA] E-posta gönderilemedi: {str(e)}")
         return False
 
-async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None):
+async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None, sender_email: str = None, sender_password: str = None):
     """
     Arka planda belirli aralıklarla çalışacak zamanlanmış tarama görevi.
     """
@@ -257,7 +254,7 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
             print(f"[ZAMANLAYICI] {target} adresi otomatik olarak tarandı. Açık port adeti: {len(open_ports)}")
             
             # E-posta parametresi girilmişse, PDF üretip gönder
-            if email and email.strip():
+            if email and email.strip() and sender_email and sender_password:
                 results_list = []
                 for ip, port, banner, warnings in open_ports:
                     results_list.append({
@@ -282,7 +279,7 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
                 }
                 
                 pdf_bytes = generate_pdf_bytes(scan_data)
-                send_email_with_pdf(email, target, pdf_bytes)
+                send_email_with_pdf(sender_email, sender_password, email, target, pdf_bytes)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -415,13 +412,15 @@ async def schedule(
     background_tasks: BackgroundTasks,
     target: str = Form(...),
     interval: int = Form(...),
-    email: str = Form(None)
+    email: str = Form(None),
+    sender_email: str = Form(None),
+    sender_password: str = Form(None)
 ):
     """
     Belirtilen hedef için arka plan görevi olarak otomatik tarama kurar.
     """
     interval_seconds = interval * 60
-    background_tasks.add_task(run_scheduled_scan, target, interval_seconds, email)
+    background_tasks.add_task(run_scheduled_scan, target, interval_seconds, email, sender_email, sender_password)
     scheduled_scans.append({
         "target": target,
         "interval": interval,
