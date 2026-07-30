@@ -51,8 +51,9 @@ last_scan_results = {
     "geolocation": None
 }
 
-# Zamanlanmış görevler listesi
+# Zamanlanmış görevler listesi ve iptal kontrol eventleri
 scheduled_scans = []
+active_tasks = {} # target: asyncio.Event()
 
 def generate_pdf_bytes(scan_data):
     """
@@ -230,9 +231,23 @@ def send_email_with_pdf(sender_email, sender_password, recipient_email, target, 
 async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None, sender_password: str = None):
     """
     Arka planda belirli aralıklarla çalışacak zamanlanmış tarama görevi.
+    İptal bayrağını dinleyerek döngüden çıkabilir.
     """
-    while True:
-        await asyncio.sleep(interval_seconds)
+    if target not in active_tasks:
+        active_tasks[target] = asyncio.Event()
+        
+    event = active_tasks[target]
+    
+    while not event.is_set():
+        # Saniye saniye kontrol ederek uyu ki iptal butonuna basıldığında anında dursun
+        for _ in range(interval_seconds):
+            if event.is_set():
+                break
+            await asyncio.sleep(1)
+            
+        if event.is_set():
+            break
+            
         open_ports = []
         targets = scanner.parse_targets(target)
         if targets:
@@ -247,7 +262,7 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
             )
             print(f"[ZAMANLAYICI] {target} adresi otomatik olarak tarandı. Açık port adeti: {len(open_ports)}")
             
-            # E-posta girilmişse, hem gönderici hem alıcı olarak kullanıp gönder
+            # E-posta girilmişse gönder
             if email and email.strip() and sender_password and sender_password.strip():
                 results_list = []
                 for ip, port, banner, warnings in open_ports:
@@ -273,6 +288,11 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
                 
                 pdf_bytes = generate_pdf_bytes(scan_data)
                 send_email_with_pdf(email, sender_password, email, target, pdf_bytes)
+
+    # Döngü kırıldıysa temizle
+    if target in active_tasks:
+        del active_tasks[target]
+    print(f"[ZAMANLAYICI] {target} için zamanlanmış tarama sonlandırıldı.")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -409,9 +429,15 @@ async def schedule(
     sender_password: str = Form(...)
 ):
     """
-    Zamanlanmış tarama kurar. Kullanıcının e-posta adresi hem gönderen hem alıcı olarak kullanılır.
+    Zamanlanmış tarama kurar.
     """
     interval_seconds = interval * 60
+    # Mevcut bir iptal eventi varsa sıfırla
+    if target in active_tasks:
+        active_tasks[target].clear()
+    else:
+        active_tasks[target] = asyncio.Event()
+        
     background_tasks.add_task(run_scheduled_scan, target, interval_seconds, email, sender_password)
     scheduled_scans.append({
         "target": target,
@@ -419,6 +445,18 @@ async def schedule(
         "email": email
     })
     return HTMLResponse("<script>alert('Zamanlanmış Tarama Arka Planda Başlatıldı!'); window.location.href='/';</script>")
+
+@app.post("/cancel")
+async def cancel(target: str = Form(...)):
+    """
+    Belirtilen hedef için çalışan zamanlanmış taramayı iptal eder.
+    """
+    if target in active_tasks:
+        active_tasks[target].set() # Döngüyü kırmak için eventi tetikle
+        
+    global scheduled_scans
+    scheduled_scans = [s for s in scheduled_scans if s["target"] != target]
+    return HTMLResponse("<script>alert('Zamanlanmış Tarama Başarıyla Durduruldu!'); window.location.href='/';</script>")
 
 @app.get("/download/pdf")
 async def download_pdf():

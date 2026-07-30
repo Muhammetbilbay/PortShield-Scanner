@@ -17,6 +17,14 @@
             --accent-yellow: #f59e0b;
         }
 
+        body.light-theme {
+            --bg-color: #f3f4f6;
+            --card-bg: rgba(255, 255, 255, 0.95);
+            --border-color: rgba(0, 0, 0, 0.08);
+            --text-primary: #1f2937;
+            --text-secondary: #4b5563;
+        }
+
         body {
             background-color: var(--bg-color);
             color: var(--text-primary);
@@ -26,6 +34,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            transition: background-color 0.3s, color 0.3s;
         }
 
         .container {
@@ -53,6 +62,30 @@
             font-size: 1.1rem;
         }
 
+        .theme-toggle-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 20px;
+        }
+
+        .theme-toggle-btn {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(16px);
+        }
+
+        .theme-toggle-btn:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-blue);
+        }
+
         .card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
@@ -61,6 +94,7 @@
             backdrop-filter: blur(16px);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             margin-bottom: 30px;
+            transition: background-color 0.3s, border-color 0.3s;
         }
 
         .stats-grid {
@@ -180,6 +214,9 @@
             transition: all 0.3s;
             box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
             width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         .btn:hover {
@@ -284,10 +321,33 @@
             font-size: 0.85rem;
             line-height: 1.4;
         }
+
+        /* Yükleme (Loading Spinner) Tasarımı */
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid white;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Tema Seçici -->
+        <div class="theme-toggle-container">
+            <button id="themeToggleBtn" class="theme-toggle-btn">🌓 Tema Değiştir</button>
+        </div>
+
         <div class="header">
             <h1>PortShield Dashboard</h1>
             <p>Asenkron Ağ Tarayıcı ve Siber Keşif Laboratuvarı</p>
@@ -372,7 +432,7 @@
                             <th>Hedef Sistem</th>
                             <th>Aralık (Dakika)</th>
                             <th>Rapor Alıcısı / Gönderici</th>
-                            <th>Durum</th>
+                            <th>Yönetim</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -381,7 +441,12 @@
                             <td><strong>{{ item.target }}</strong></td>
                             <td>{{ item.interval }} dk.</td>
                             <td>{{ item.email }}</td>
-                            <td><span class="status-badge">Aktif Çalışıyor</span></td>
+                            <td>
+                                <form action="/cancel" method="POST" style="display:inline;">
+                                    <input type="hidden" name="target" value="{{ item.target }}">
+                                    <button type="submit" class="btn-pdf" style="background: var(--accent-red); box-shadow: none; padding: 6px 12px; font-size: 0.8rem;">Durdur</button>
+                                </form>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -400,7 +465,7 @@
             </div>
             {% endif %}
 
-            <form action="/scan" method="POST">
+            <form id="scanForm" action="/scan" method="POST">
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="target">Hedef IP / CIDR / Alan Adı</label>
@@ -455,7 +520,7 @@
                     </label>
                 </div>
 
-                <button type="submit" class="btn">Taramayı Başlat</button>
+                <button type="submit" class="btn" id="submitBtn">Taramayı Başlat</button>
             </form>
         </div>
 
@@ -582,5 +647,33 @@
         </div>
         {% endif %}
     </div>
+
+    <script>
+        // Tema Değiştirici Kodları
+        const themeBtn = document.getElementById("themeToggleBtn");
+        themeBtn.addEventListener("click", () => {
+            document.body.classList.toggle("light-theme");
+            if (document.body.classList.contains("light-theme")) {
+                localStorage.setItem("theme", "light");
+            } else {
+                localStorage.setItem("theme", "dark");
+            }
+        });
+
+        // Sayfa yüklendiğinde temayı hatırla
+        if (localStorage.getItem("theme") === "light") {
+            document.body.classList.add("light-theme");
+        }
+
+        // Yükleniyor (Spinner) Durum Kodları
+        const scanForm = document.getElementById("scanForm");
+        if (scanForm) {
+            scanForm.addEventListener("submit", () => {
+                const submitBtn = document.getElementById("submitBtn");
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner"></span> Tarama Yapılıyor...';
+            });
+        }
+    </script>
 </body>
 </html>
