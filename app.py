@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 import scanner
 import asyncio
 import os
@@ -19,6 +20,10 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 app = FastAPI(title="PortShield Scanner Web UI")
+
+# Statik dosyaları (CSS, JS) barındıran klasörü bağla
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 templates = Jinja2Templates(directory="templates")
 
 # Türkçe karakter desteği için Arial yazı tipini sisteme kaydet
@@ -358,7 +363,7 @@ async def scan(
         
     # Opsiyonel: Subdomain Taraması
     subdomains_list = []
-    if subdomain_scan and not target.replace('.', '').replace('-', '').isdigit():
+    if subdomain_scan and not target.replace('.', '').replace('.', '').isdigit():
         subdomains_list = await scanner.discover_subdomains(target)
         
     # Opsiyonel: Web Dizin Taraması
