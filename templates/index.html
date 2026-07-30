@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PortShield Web Kontrol Paneli</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-color: #0b0f19;
@@ -100,13 +99,20 @@
 
         .form-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-grid-three {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
             gap: 20px;
             margin-bottom: 20px;
         }
 
         @media (max-width: 768px) {
-            .form-grid {
+            .form-grid, .form-grid-three {
                 grid-template-columns: 1fr;
             }
         }
@@ -184,21 +190,6 @@
         .btn-pdf {
             background: linear-gradient(135deg, #ef4444, #f59e0b);
             box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
-            margin-top: 15px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            box-sizing: border-box;
-        }
-
-        .btn-pdf:hover {
-            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
-        }
-
-        .btn-export {
-            background: linear-gradient(135deg, #4b5563, #374151);
-            box-shadow: 0 4px 15px rgba(75, 85, 99, 0.3);
-            margin-top: 15px;
             text-align: center;
             text-decoration: none;
             display: inline-block;
@@ -210,12 +201,11 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
-            margin-left: 10px;
         }
 
-        .btn-export:hover {
+        .btn-pdf:hover {
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(75, 85, 99, 0.4);
         }
 
         .error-banner {
@@ -294,14 +284,6 @@
             font-size: 0.85rem;
             line-height: 1.4;
         }
-
-        .chart-box {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            max-height: 250px;
-            margin-top: 20px;
-        }
     </style>
 </head>
 <body>
@@ -348,18 +330,6 @@
                 <div class="stat-label">Dizin & API</div>
             </div>
         </div>
-
-        <!-- İstatistik Grafiği -->
-        {% if results %}
-        <div class="card">
-            <div class="results-header" style="border-left-color: var(--accent-blue);">
-                <h2>Zafiyet & Port Dağılım Grafiği</h2>
-            </div>
-            <div class="chart-box">
-                <canvas id="vulnChart"></canvas>
-            </div>
-        </div>
-        {% endif %}
         {% endif %}
 
         <!-- Zamanlama Ayarları Formu -->
@@ -368,14 +338,18 @@
                 <h2>Otomatik Zamanlanmış Tarama Kur</h2>
             </div>
             <form action="/schedule" method="POST">
-                <div class="form-grid">
+                <div class="form-grid-three">
                     <div class="form-group">
                         <label for="sched_target">Hedef IP / Alan Adı</label>
                         <input type="text" id="sched_target" name="target" required placeholder="Örn: scanme.nmap.org">
                     </div>
                     <div class="form-group">
                         <label for="interval">Tarama Sıklığı (Dakika)</label>
-                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika cinsinden sıklık">
+                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika">
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Rapor Gönderilecek E-posta (İsteğe Bağlı)</label>
+                        <input type="email" id="email" name="email" placeholder="Örn: bilbay172034@gmail.com">
                     </div>
                 </div>
                 <button type="submit" class="btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 15px rgba(245,158,11,0.3);">Arka Plan Zamanlayıcıyı Kur</button>
@@ -393,6 +367,7 @@
                         <tr>
                             <th>Hedef Sistem</th>
                             <th>Aralık (Dakika)</th>
+                            <th>Rapor Alıcısı</th>
                             <th>Durum</th>
                         </tr>
                     </thead>
@@ -401,6 +376,7 @@
                         <tr>
                             <td><strong>{{ item.target }}</strong></td>
                             <td>{{ item.interval }} dk.</td>
+                            <td>{{ item.email }}</td>
                             <td><span class="status-badge">Aktif Çalışıyor</span></td>
                         </tr>
                         {% endfor %}
@@ -483,11 +459,7 @@
         <div class="card">
             <div class="results-header">
                 <h2>Tarama Bulguları (Mod: {{ scan_mode }})</h2>
-                <div>
-                    <a href="/download/pdf" class="btn btn-pdf" style="width: auto; padding: 10px 20px; margin-top:0;">PDF Raporu</a>
-                    <a href="/download/csv" class="btn-export">CSV İndir</a>
-                    <a href="/download/json" class="btn-export">JSON İndir</a>
-                </div>
+                <a href="/download/pdf" class="btn btn-pdf" style="width: auto; padding: 10px 20px;">PDF Raporu İndir</a>
             </div>
             
             {% if results %}
@@ -606,38 +578,5 @@
         </div>
         {% endif %}
     </div>
-
-    {% if results %}
-    <script>
-        const ctx = document.getElementById('vulnChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Zafiyet / Bulgular', 'Açık Portlar'],
-                datasets: [{
-                    label: 'Adet',
-                    data: [{{ warning_count.value }}, {{ results | length }}],
-                    backgroundColor: [
-                        '#ef4444',
-                        '#3b82f6'
-                    ],
-                    borderColor: 'rgba(255, 255, 255, 0.08)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        labels: {
-                            color: '#f1f5f9'
-                        }
-                    }
-                }
-            }
-        });
-    </script>
-    {% endif %}
 </body>
 </html>

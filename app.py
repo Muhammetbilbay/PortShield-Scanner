@@ -5,8 +5,12 @@ import scanner
 import asyncio
 import os
 import json
-import csv
-from io import BytesIO, StringIO
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -31,6 +35,13 @@ try:
 except Exception:
     pass
 
+# SMTP E-posta Ayarları (Zamanlanmış tarama sonuçlarının e-posta ile iletilmesi için)
+# Lütfen Gmail için 16 haneli Uygulama Şifrenizi (App Password) buraya giriniz.
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USER = "bilbay172034@gmail.com"
+SMTP_PASSWORD = "" # Buraya Google Hesap Ayarları -> Güvenlik altından alacağınız uygulama şifresini yazın
+
 # Tarama sonuçlarını geçici olarak hafızada saklayan değişken
 last_scan_results = {
     "target": "",
@@ -45,6 +56,185 @@ last_scan_results = {
 
 # Zamanlanmış görevler listesi
 scheduled_scans = []
+
+def generate_pdf_bytes(scan_data):
+    """
+    Tarama verilerinden PDF çıktısı üretir ve bytes olarak döner.
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle', parent=styles['Heading1'], fontName=pdf_font_bold, fontSize=24, textColor=colors.HexColor('#1A365D'), spaceAfter=15
+    )
+    h2_style = ParagraphStyle(
+        'H2Style', parent=styles['Heading2'], fontName=pdf_font_bold, fontSize=16, textColor=colors.HexColor('#2B6CB0'), spaceBefore=15, spaceAfter=10
+    )
+    normal_style = ParagraphStyle(
+        'NormalStyle', parent=styles['Normal'], fontName=pdf_font, fontSize=10, textColor=colors.HexColor('#2D3748'), spaceAfter=5
+    )
+    cell_style = ParagraphStyle(
+        'CellStyle', parent=styles['Normal'], fontName=pdf_font, fontSize=9, leading=12
+    )
+    header_cell_style = ParagraphStyle(
+        'HeaderCellStyle', parent=styles['Normal'], fontName=pdf_font_bold, fontSize=10, textColor=colors.white
+    )
+    
+    story.append(Paragraph("PortShield Sızma Testi Raporu", title_style))
+    story.append(Paragraph(f"<b>Hedef:</b> {scan_data['target']}", normal_style))
+    story.append(Paragraph(f"<b>Taranan Portlar:</b> {scan_data['ports']}", normal_style))
+    story.append(Paragraph(f"<b>Tarama Modu:</b> {scan_data['scan_mode']}", normal_style))
+    
+    geo = scan_data.get("geolocation")
+    if geo:
+        story.append(Paragraph(f"<b>Coğrafi Konum:</b> {geo['city']}, {geo['country']} | <b>ISS (ISP):</b> {geo['isp']}", normal_style))
+        
+    story.append(Spacer(1, 15))
+    
+    # Port Tablosu
+    story.append(Paragraph("Açık Port Bulguları", h2_style))
+    table_data = [[
+        Paragraph("IP Adresi", header_cell_style), 
+        Paragraph("Port", header_cell_style), 
+        Paragraph("Servis", header_cell_style), 
+        Paragraph("Analiz / Uyarılar", header_cell_style)
+    ]]
+    for item in scan_data["results"]:
+        warns = "<br/>".join(item["warnings"]) if item["warnings"] else "Temiz / Sorun yok"
+        table_data.append([
+            Paragraph(item["ip"], cell_style),
+            Paragraph(str(item["port"]), cell_style),
+            Paragraph(item["banner"], cell_style),
+            Paragraph(warns, cell_style)
+        ])
+        
+    t = Table(table_data, colWidths=[100, 50, 150, 240])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2B6CB0')),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('GRID', (0,0), (-1,-1), 1, colors.grey),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
+    ]))
+    story.append(t)
+    
+    # Subdomain Bulguları
+    if scan_data.get("subdomains"):
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("Keşfedilen Alt Alan Adları (Subdomains)", h2_style))
+        sub_data = [[
+            Paragraph("Subdomain", header_cell_style), 
+            Paragraph("IP Adresi", header_cell_style)
+        ]]
+        for sub, ip in scan_data["subdomains"]:
+            sub_data.append([
+                Paragraph(sub, cell_style), 
+                Paragraph(ip, cell_style)
+            ])
+        t_sub = Table(sub_data, colWidths=[270, 270])
+        t_sub.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2D3748')),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
+        ]))
+        story.append(t_sub)
+        
+    # Dizin Bulguları
+    if scan_data.get("directories"):
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("Keşfedilen Gizli Web Dizinleri", h2_style))
+        dir_data = [[
+            Paragraph("URL", header_cell_style), 
+            Paragraph("Durum Kodu", header_cell_style)
+        ]]
+        for item in scan_data["directories"]:
+            dir_data.append([
+                Paragraph(f"{item['ip']}:{item['port']}{item['path']}", cell_style), 
+                Paragraph(str(item['status']), cell_style)
+            ])
+        t_dir = Table(dir_data, colWidths=[400, 140])
+        t_dir.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2D3748')),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
+        ]))
+        story.append(t_dir)
+
+    # API Dokümantasyon Bulguları
+    if scan_data.get("apis"):
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("Keşfedilen API ve Swagger Dokümantasyonları", h2_style))
+        api_data = [[
+            Paragraph("API Adresi (URL)", header_cell_style), 
+            Paragraph("Durum Kodu", header_cell_style)
+        ]]
+        for item in scan_data["apis"]:
+            api_data.append([
+                Paragraph(f"{item['ip']}:{item['port']}{item['path']}", cell_style), 
+                Paragraph(str(item['status']), cell_style)
+            ])
+        t_api = Table(api_data, colWidths=[400, 140])
+        t_api.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1A365D')),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
+        ]))
+        story.append(t_api)
+        
+    doc.build(story)
+    return buffer.getvalue()
+
+def send_email_with_pdf(recipient_email, target, pdf_data):
+    """
+    SMTP protokolünü kullanarak PDF raporunu belirtilen adrese e-posta olarak gönderir.
+    """
+    if not SMTP_PASSWORD:
+        print("[SMTP HATA] SMTP şifresi app.py içinde ayarlanmadığından e-posta gönderilemedi.")
+        return False
+        
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER
+        msg['To'] = recipient_email
+        msg['Subject'] = f"PortShield Zamanlanmış Tarama Raporu: {target}"
+        
+        body = f"Merhaba,\n\n{target} adresi için zamanlanmış otomatik tarama tamamlandı.\nEkten PDF tarama raporunu indirebilirsiniz.\n\nİyi çalışmalar,\nPortShield Scanner"
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # PDF ekleme
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(pdf_data)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="portshield_{target}_rapor.pdf"')
+        msg.attach(part)
+        
+        # SMTP sunucu bağlantısı
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_USER, recipient_email, msg.as_string())
+        server.quit()
+        print(f"[SMTP BAŞARILI] E-posta başarıyla gönderildi: {recipient_email}")
+        return True
+    except Exception as e:
+        print(f"[SMTP HATA] E-posta gönderilemedi: {str(e)}")
+        return False
 
 async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None):
     """
@@ -65,6 +255,34 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
                 max_workers=50
             )
             print(f"[ZAMANLAYICI] {target} adresi otomatik olarak tarandı. Açık port adeti: {len(open_ports)}")
+            
+            # E-posta parametresi girilmişse, PDF üretip gönder
+            if email and email.strip():
+                results_list = []
+                for ip, port, banner, warnings in open_ports:
+                    results_list.append({
+                        "ip": ip,
+                        "port": port,
+                        "banner": banner,
+                        "warnings": warnings
+                    })
+                
+                # Coğrafi Konum (IP Geolocation)
+                geo_data = await asyncio.to_thread(scanner.get_ip_geolocation, targets[0])
+                
+                scan_data = {
+                    "target": target,
+                    "ports": "Top 10 (Zamanlanmış)",
+                    "scan_mode": "TCP",
+                    "results": results_list,
+                    "subdomains": [],
+                    "directories": [],
+                    "apis": [],
+                    "geolocation": geo_data
+                }
+                
+                pdf_bytes = generate_pdf_bytes(scan_data)
+                send_email_with_pdf(email, target, pdf_bytes)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -196,207 +414,22 @@ async def scan(
 async def schedule(
     background_tasks: BackgroundTasks,
     target: str = Form(...),
-    interval: int = Form(...)
+    interval: int = Form(...),
+    email: str = Form(None)
 ):
     """
     Belirtilen hedef için arka plan görevi olarak otomatik tarama kurar.
     """
     interval_seconds = interval * 60
-    background_tasks.add_task(run_scheduled_scan, target, interval_seconds)
+    background_tasks.add_task(run_scheduled_scan, target, interval_seconds, email)
     scheduled_scans.append({
         "target": target,
-        "interval": interval
+        "interval": interval,
+        "email": email if email else "E-posta girilmedi"
     })
     return HTMLResponse("<script>alert('Zamanlanmış Tarama Arka Planda Başlatıldı!'); window.location.href='/';</script>")
 
 @app.get("/download/pdf")
 async def download_pdf():
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    story = []
-    
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Heading1'],
-        fontName=pdf_font_bold,
-        fontSize=24,
-        textColor=colors.HexColor('#1A365D'),
-        spaceAfter=15
-    )
-    h2_style = ParagraphStyle(
-        'H2Style',
-        parent=styles['Heading2'],
-        fontName=pdf_font_bold,
-        fontSize=16,
-        textColor=colors.HexColor('#2B6CB0'),
-        spaceBefore=15,
-        spaceAfter=10
-    )
-    normal_style = ParagraphStyle(
-        'NormalStyle',
-        parent=styles['Normal'],
-        fontName=pdf_font,
-        fontSize=10,
-        textColor=colors.HexColor('#2D3748'),
-        spaceAfter=5
-    )
-    cell_style = ParagraphStyle(
-        'CellStyle',
-        parent=styles['Normal'],
-        fontName=pdf_font,
-        fontSize=9,
-        leading=12
-    )
-    header_cell_style = ParagraphStyle(
-        'HeaderCellStyle',
-        parent=styles['Normal'],
-        fontName=pdf_font_bold,
-        fontSize=10,
-        textColor=colors.white
-    )
-    
-    # Rapor Başlığı
-    story.append(Paragraph("PortShield Sızma Testi Raporu", title_style))
-    story.append(Paragraph(f"<b>Hedef:</b> {last_scan_results['target']}", normal_style))
-    story.append(Paragraph(f"<b>Taranan Portlar:</b> {last_scan_results['ports']}", normal_style))
-    story.append(Paragraph(f"<b>Tarama Modu:</b> {last_scan_results['scan_mode']}", normal_style))
-    
-    # Konum bilgileri varsa ekle
-    geo = last_scan_results.get("geolocation")
-    if geo:
-        story.append(Paragraph(f"<b>Coğrafi Konum:</b> {geo['city']}, {geo['country']} | <b>ISS (ISP):</b> {geo['isp']}", normal_style))
-        
-    story.append(Spacer(1, 15))
-    
-    # Bulgular Tablosu
-    story.append(Paragraph("Açık Port Bulguları", h2_style))
-    table_data = [[
-        Paragraph("IP Adresi", header_cell_style), 
-        Paragraph("Port", header_cell_style), 
-        Paragraph("Servis", header_cell_style), 
-        Paragraph("Analiz / Uyarılar", header_cell_style)
-    ]]
-    for item in last_scan_results["results"]:
-        warns = "<br/>".join(item["warnings"]) if item["warnings"] else "Temiz / Sorun yok"
-        table_data.append([
-            Paragraph(item["ip"], cell_style),
-            Paragraph(str(item["port"]), cell_style),
-            Paragraph(item["banner"], cell_style),
-            Paragraph(warns, cell_style)
-        ])
-        
-    t = Table(table_data, colWidths=[100, 50, 150, 240])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2B6CB0')),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('GRID', (0,0), (-1,-1), 1, colors.grey),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
-    ]))
-    story.append(t)
-    
-    # Subdomain Bulguları
-    if last_scan_results["subdomains"]:
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("Keşfedilen Alt Alan Adları (Subdomains)", h2_style))
-        sub_data = [[
-            Paragraph("Subdomain", header_cell_style), 
-            Paragraph("IP Adresi", header_cell_style)
-        ]]
-        for sub, ip in last_scan_results["subdomains"]:
-            sub_data.append([
-                Paragraph(sub, cell_style), 
-                Paragraph(ip, cell_style)
-            ])
-        t_sub = Table(sub_data, colWidths=[270, 270])
-        t_sub.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2D3748')),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('GRID', (0,0), (-1,-1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
-        ]))
-        story.append(t_sub)
-        
-    # Dizin Bulguları
-    if last_scan_results["directories"]:
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("Keşfedilen Gizli Web Dizinleri", h2_style))
-        dir_data = [[
-            Paragraph("URL", header_cell_style), 
-            Paragraph("Durum Kodu", header_cell_style)
-        ]]
-        for item in last_scan_results["directories"]:
-            dir_data.append([
-                Paragraph(f"{item['ip']}:{item['port']}{item['path']}", cell_style), 
-                Paragraph(str(item['status']), cell_style)
-            ])
-        t_dir = Table(dir_data, colWidths=[400, 140])
-        t_dir.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2D3748')),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('GRID', (0,0), (-1,-1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
-        ]))
-        story.append(t_dir)
-
-    # API Dokümantasyon Bulguları
-    if last_scan_results.get("apis"):
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("Keşfedilen API ve Swagger Dokümantasyonları", h2_style))
-        api_data = [[
-            Paragraph("API Adresi (URL)", header_cell_style), 
-            Paragraph("Durum Kodu", header_cell_style)
-        ]]
-        for item in last_scan_results["apis"]:
-            api_data.append([
-                Paragraph(f"{item['ip']}:{item['port']}{item['path']}", cell_style), 
-                Paragraph(str(item['status']), cell_style)
-            ])
-        t_api = Table(api_data, colWidths=[400, 140])
-        t_api.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1A365D')),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('GRID', (0,0), (-1,-1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')])
-        ]))
-        story.append(t_api)
-        
-    doc.build(story)
-    buffer.seek(0)
-    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=portshield_rapor.pdf"})
-
-@app.get("/download/json")
-async def download_json():
-    """
-    Tarama verilerini ham JSON formatında indirmeyi sağlar.
-    """
-    json_bytes = json.dumps(last_scan_results, indent=4, ensure_ascii=False).encode('utf-8')
-    return StreamingResponse(BytesIO(json_bytes), media_type="application/json", headers={"Content-Disposition": "attachment; filename=portshield_rapor.json"})
-
-@app.get("/download/csv")
-async def download_csv():
-    """
-    Tarama verilerini Excel uyumlu Türkçe CSV formatında indirmeyi sağlar.
-    """
-    csv_buffer = StringIO()
-    writer = csv.writer(csv_buffer, delimiter=';')
-    writer.writerow(["IP Adresi", "Port", "Servis / Banner", "Zafiyetler ve Bulgular"])
-    
-    for item in last_scan_results["results"]:
-        warns = " | ".join(item["warnings"]) if item["warnings"] else "Sorun Yok"
-        writer.writerow([item["ip"], item["port"], item["banner"], warns])
-        
-    csv_bytes = csv_buffer.getvalue().encode('utf-8-sig') # BOM ekle
-    return StreamingResponse(BytesIO(csv_bytes), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=portshield_rapor.csv"})
+    pdf_bytes = generate_pdf_bytes(last_scan_results)
+    return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=portshield_rapor.pdf"})
