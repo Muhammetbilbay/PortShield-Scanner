@@ -26,10 +26,11 @@
         }
 
         body.light-theme .form-group input,
-        body.light-theme .form-group select {
-            background: #ffffff;
-            color: #1f2937;
-            border: 1px solid #d1d5db;
+        body.light-theme .form-group select,
+        body.light-theme #resultsSearch {
+            background: #ffffff !important;
+            color: #1f2937 !important;
+            border: 1px solid #d1d5db !important;
         }
 
         body {
@@ -539,8 +540,15 @@
             </div>
             
             {% if results %}
+            <!-- Canlı Arama ve Hızlı Filtre Barı -->
+            <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
+                <input type="text" id="resultsSearch" placeholder="Bulgularda Ara (IP, Port veya Servis)..." style="flex: 1; min-width: 260px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 8px; padding: 11px 15px; color: var(--text-primary); font-size: 0.95rem; outline: none; transition: border-color 0.3s;">
+                <button id="filterAllBtn" class="theme-toggle-btn" style="border-color: var(--accent-blue);">Tümünü Göster</button>
+                <button id="filterVulnBtn" class="theme-toggle-btn">Sadece Zafiyetleri Göster</button>
+            </div>
+
             <div style="overflow-x: auto;">
-                <table>
+                <table id="scanResultsTable">
                     <thead>
                         <tr>
                             <th>Hedef IP</th>
@@ -679,6 +687,61 @@
                 const submitBtn = document.getElementById("submitBtn");
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<span class="spinner"></span> Tarama Yapılıyor...';
+            });
+        }
+
+        // Bulguları Filtreleme ve Canlı Arama Kodları
+        const searchInput = document.getElementById("resultsSearch");
+        const filterAllBtn = document.getElementById("filterAllBtn");
+        const filterVulnBtn = document.getElementById("filterVulnBtn");
+        
+        let filterMode = "all"; // "all" veya "vuln"
+        
+        function filterTable() {
+            if (!searchInput) return;
+            const query = searchInput.value.toLowerCase().trim();
+            const rows = document.querySelectorAll("#scanResultsTable tbody tr");
+            
+            rows.forEach(row => {
+                const ip = row.cells[0].textContent.toLowerCase();
+                const port = row.cells[1].textContent.toLowerCase();
+                const analysisText = row.cells[3].textContent.toLowerCase();
+                const hasWarnings = row.querySelector(".warning-list") !== null;
+                
+                // Arama eşleşmesi kontrolü
+                const matchesQuery = ip.includes(query) || port.includes(query) || analysisText.includes(query);
+                
+                // Filtre modu kontrolü
+                let matchesFilter = true;
+                if (filterMode === "vuln") {
+                    matchesFilter = hasWarnings;
+                }
+                
+                if (matchesQuery && matchesFilter) {
+                    row.style.display = "";
+                } else {
+                    row.style.display = "none";
+                }
+            });
+        }
+        
+        if (searchInput) {
+            searchInput.addEventListener("input", filterTable);
+        }
+        if (filterAllBtn) {
+            filterAllBtn.addEventListener("click", () => {
+                filterMode = "all";
+                filterAllBtn.style.borderColor = "var(--accent-blue)";
+                filterVulnBtn.style.borderColor = "var(--border-color)";
+                filterTable();
+            });
+        }
+        if (filterVulnBtn) {
+            filterVulnBtn.addEventListener("click", () => {
+                filterMode = "vuln";
+                filterVulnBtn.style.borderColor = "var(--accent-red)";
+                filterAllBtn.style.borderColor = "var(--border-color)";
+                filterTable();
             });
         }
     </script>
