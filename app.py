@@ -35,7 +35,7 @@ try:
 except Exception:
     pass
 
-# Varsayılan SMTP Sunucusu Ayarları (Değiştirilebilir)
+# Varsayılan SMTP Sunucusu Ayarları
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
@@ -199,12 +199,8 @@ def generate_pdf_bytes(scan_data):
 
 def send_email_with_pdf(sender_email, sender_password, recipient_email, target, pdf_data):
     """
-    SMTP protokolünü kullanarak PDF raporunu dinamik kimlik bilgileriyle e-posta olarak gönderir.
+    SMTP protokolünü kullanarak PDF raporunu gönderir.
     """
-    if not sender_email or not sender_password:
-        print("[SMTP HATA] SMTP kimlik bilgileri eksik olduğu için e-posta gönderilemedi.")
-        return False
-        
     try:
         msg = MIMEMultipart()
         msg['From'] = sender_email
@@ -214,14 +210,12 @@ def send_email_with_pdf(sender_email, sender_password, recipient_email, target, 
         body = f"Merhaba,\n\n{target} adresi için zamanlanmış otomatik tarama tamamlandı.\nEkten PDF tarama raporunu indirebilirsiniz.\n\nİyi çalışmalar,\nPortShield Scanner"
         msg.attach(MIMEText(body, 'plain'))
         
-        # PDF ekleme
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(pdf_data)
         encoders.encode_base64(part)
         part.add_header('Content-Disposition', f'attachment; filename="portshield_{target}_rapor.pdf"')
         msg.attach(part)
         
-        # SMTP sunucu bağlantısı
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(sender_email, sender_password)
@@ -233,7 +227,7 @@ def send_email_with_pdf(sender_email, sender_password, recipient_email, target, 
         print(f"[SMTP HATA] E-posta gönderilemedi: {str(e)}")
         return False
 
-async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None, sender_email: str = None, sender_password: str = None):
+async def run_scheduled_scan(target: str, interval_seconds: int, email: str = None, sender_password: str = None):
     """
     Arka planda belirli aralıklarla çalışacak zamanlanmış tarama görevi.
     """
@@ -253,8 +247,8 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
             )
             print(f"[ZAMANLAYICI] {target} adresi otomatik olarak tarandı. Açık port adeti: {len(open_ports)}")
             
-            # E-posta parametresi girilmişse, PDF üretip gönder
-            if email and email.strip() and sender_email and sender_password:
+            # E-posta girilmişse, hem gönderici hem alıcı olarak kullanıp gönder
+            if email and email.strip() and sender_password and sender_password.strip():
                 results_list = []
                 for ip, port, banner, warnings in open_ports:
                     results_list.append({
@@ -264,7 +258,6 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
                         "warnings": warnings
                     })
                 
-                # Coğrafi Konum (IP Geolocation)
                 geo_data = await asyncio.to_thread(scanner.get_ip_geolocation, targets[0])
                 
                 scan_data = {
@@ -279,7 +272,7 @@ async def run_scheduled_scan(target: str, interval_seconds: int, email: str = No
                 }
                 
                 pdf_bytes = generate_pdf_bytes(scan_data)
-                send_email_with_pdf(sender_email, sender_password, email, target, pdf_bytes)
+                send_email_with_pdf(email, sender_password, email, target, pdf_bytes)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -412,19 +405,18 @@ async def schedule(
     background_tasks: BackgroundTasks,
     target: str = Form(...),
     interval: int = Form(...),
-    email: str = Form(None),
-    sender_email: str = Form(None),
-    sender_password: str = Form(None)
+    email: str = Form(...),
+    sender_password: str = Form(...)
 ):
     """
-    Belirtilen hedef için arka plan görevi olarak otomatik tarama kurar.
+    Zamanlanmış tarama kurar. Kullanıcının e-posta adresi hem gönderen hem alıcı olarak kullanılır.
     """
     interval_seconds = interval * 60
-    background_tasks.add_task(run_scheduled_scan, target, interval_seconds, email, sender_email, sender_password)
+    background_tasks.add_task(run_scheduled_scan, target, interval_seconds, email, sender_password)
     scheduled_scans.append({
         "target": target,
         "interval": interval,
-        "email": email if email else "E-posta girilmedi"
+        "email": email
     })
     return HTMLResponse("<script>alert('Zamanlanmış Tarama Arka Planda Başlatıldı!'); window.location.href='/';</script>")
 

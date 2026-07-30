@@ -122,16 +122,6 @@
             flex-direction: column;
         }
 
-        .form-group-full {
-            grid-column: span 2;
-        }
-
-        @media (max-width: 768px) {
-            .form-group-full {
-                grid-column: span 1;
-            }
-        }
-
         .form-group label {
             font-size: 0.9rem;
             color: var(--text-secondary);
@@ -355,19 +345,15 @@
                     </div>
                     <div class="form-group">
                         <label for="interval">Tarama Sıklığı (Dakika)</label>
-                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika cinsinden sıklık">
+                        <input type="number" id="interval" name="interval" required min="1" placeholder="Dakika">
                     </div>
                     <div class="form-group">
-                        <label for="sender_email">Gönderici Gmail Adresi</label>
-                        <input type="email" id="sender_email" name="sender_email" required placeholder="Örn: gönderici@gmail.com">
+                        <label for="email">Gmail Adresiniz (Rapor Buraya Gönderilecek)</label>
+                        <input type="email" id="email" name="email" required placeholder="Örn: adiniz@gmail.com">
                     </div>
                     <div class="form-group">
-                        <label for="sender_password">Gmail Uygulama Şifresi (16 Haneli)</label>
+                        <label for="sender_password">Gmail Uygulama Şifreniz (16 Haneli)</label>
                         <input type="password" id="sender_password" name="sender_password" required placeholder="Örn: abcd efgh ijkl mnop">
-                    </div>
-                    <div class="form-group form-group-full">
-                        <label for="email">Raporun Gönderileceği Alıcı E-posta</label>
-                        <input type="email" id="email" name="email" required placeholder="Örn: alici@gmail.com">
                     </div>
                 </div>
                 <button type="submit" class="btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 15px rgba(245,158,11,0.3); margin-top: 10px;">Arka Plan Zamanlayıcıyı Kur</button>
@@ -385,7 +371,7 @@
                         <tr>
                             <th>Hedef Sistem</th>
                             <th>Aralık (Dakika)</th>
-                            <th>Rapor Alıcısı</th>
+                            <th>Rapor Alıcısı / Gönderici</th>
                             <th>Durum</th>
                         </tr>
                     </thead>
