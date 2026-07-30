@@ -1,59 +1,61 @@
-# PortShield Tarayıcı (PortShield Scanner)
+# 🛡️ PortShield Scanner (Web UI & Asenkron Siber Keşif Laboratuvarı)
 
-Python ile yazılmış, yüksek performanslı ve çoklu iş parçacığı (multi-threaded) desteğine sahip bir TCP Port Tarayıcı ve Sancak Yakalayıcı (Banner Grabber). Güvenlik denetimleri ve sızma testleri sırasındaki keşif (reconnaissance) aşamaları için tasarlanmıştır.
-
-## Özellikler
-
-- **Çoklu İş Parçacıklı Tarama Motoru**: Python'un `threading` ve iş parçacığı güvenli (thread-safe) kuyruk yapılarını kullanarak binlerce portu saniyeler içinde tarar.
-- **Çoklu IP ve Subnet (CIDR) Desteği**: Tekil IP/host taramalarının yanı sıra virgülle ayrılmış IP listelerini, CIDR bloklarını (örn: `192.168.1.0/24`) ve IP aralıklarını (örn: `192.168.1.1-15`) tarayabilir.
-- **Sancak Yakalama (Banner Grabbing)**: Çalışan uygulamaları ve bunların sürümlerini tanımlamak için açık portlardaki servis imzalarını (başlıklar, karşılama mesajları) yakalamaya çalışır.
-- **Çevrimdışı Zafiyet Analizi (Offline Mapping)**: Yakalanan banner bilgilerini analiz ederek eski veya zafiyet barındıran servisler için yerel güvenlik uyarıları üretir.
-- **Dosya Kaydetme (JSON & TXT)**: Tarama sonuçlarını ve zafiyet uyarılarını yapılandırılmış JSON veya düz metin (TXT) dosyası olarak dışa aktarır.
-- **Hız Sınırlama (Rate Limiting)**: Ağ trafiğini kontrol etmek amacıyla her istek arasına milisaniye cinsinden gecikme süresi (`--delay`) koyulmasını sağlar.
-- **Temiz CLI Arayüzü**: Kolay okunabilirlik için renkli terminal çıktıları kullanır.
+Python ve FastAPI ile yazılmış; yüksek hızlı asenkron port tarama, zafiyet analizi, subdomain/dizin tespiti, otomatik zamanlayıcı ve e-posta raporlama yeteneklerine sahip premium bir siber güvenlik ve keşif (reconnaissance) aracıdır.
 
 ---
 
-## Nasıl Çalışır?
+## 🚀 Öne Çıkan Özellikler
 
-### Eşzamanlılık ve Performans
-Sıralı olarak yapılan standart soket taramaları çok fazla zaman alır. Port başına `1.0` saniyelik bir zaman aşımı (timeout), 1.000 portun sıralı taranmasının **16 dakikadan fazla** süreceği anlamına gelir.
-PortShield, iş yükünü özel iş parçacığı sayılarına (örneğin 100 thread) dağıtan bir işçi kuyruğu havuzu (worker queue pool) tasarımı uygular ve 1.000 port için tarama süresini **10 saniyenin altına** indirir.
-
-### Sancak Yakalama (Banner Grabbing) Mantığı
-PortShield, açık portları bulmanın ötesine geçerek servislerden sürüm bilgisi talep eder:
-- SSH, FTP ve SMTP gibi protokoller için sunucu, bağlantı kurulur kurulmaz hemen bir karşılama mesajı (banner) gönderir.
-- HTTP/HTTPS için ise tarayıcı, yanıt olarak bir web sunucusu imzası tetiklemek amacıyla standart bir istek (`HEAD / HTTP/1.1`) gönderir.
+- **Asenkron Tarama Motoru (`asyncio`):** Binlerce portu paralel ve eşzamanlı olarak saniyeler içinde tarar.
+- **Canlı CVE ve SSL Analizi:** Açık web portlarındaki servis sürümlerini analiz eder, SSL sertifikalarının geçerlilik gün sayısını doğrular ve ilgili CVE zafiyet kodlarını canlı API entegrasyonuyla listeler.
+- **Gelişmiş Keşif Modülleri:**
+  * **Alt Alan Adı (Subdomain) Arama**
+  * **Gizli Web Dizinleri Keşfi (Directory Buster)**
+  * **Swagger & API Belgeleri Tespiti**
+- **WAF ve Zayıf Şifre Denetimi:** Sunucu önündeki WAF (Web Application Firewall) varlığını tespit eder. FTP/SSH açık çıktığında zayıf şifreleri (brute force) test eder.
+- **Otomatik Zamanlayıcı ve E-posta Raporlama:** Belirlenen sürelerde arka planda otomatik taramalar gerçekleştirir ve oluşturulan **PDF Raporlarını** doğrudan belirttiğiniz Gmail adresine otomatik olarak gönderir.
+- **Premium Web Kontrol Paneli:** 
+  * Karanlık / Aydınlık tema geçişi (Tercih hafızalı).
+  * Bulgular tablosunda sayfa yenilenmeden çalışan **Canlı Arama** ve **Zafiyet Filtreleme** butonları.
+  * Tarama esnasında çift tıklamayı önleyen canlı yükleme (spinner) efekti.
 
 ---
 
-## Kurulum ve Kurulum Adımları
+## 🛠️ Kurulum Adımları
 
-1. **Depoyu klonlayın:**
+1. **Depoyu bilgisayarınıza indirin:**
    ```bash
    git clone https://github.com/Muhammetbilbay/PortShield-Scanner.git
    cd PortShield-Scanner
    ```
 
-2. **Gerekli paketleri yükleyin:**
+2. **Bağımlılıkları yükleyin:**
    ```bash
    pip install -r requirements.txt
    ```
 
-## Kullanım
+---
 
-Tarayıcıyı `python scanner.py` komutuyla ve özel parametrelerle çalıştırın:
+## 💻 Kullanım (Çalıştırma)
 
-```bash
-# Bir alan adının varsayılan portlarını (1-1024) tarayın
-python scanner.py -t scanme.nmap.org
+FastAPI web sunucusunu ve arayüzünü başlatmak için PowerShell veya CMD terminalinizde şu komutları sırasıyla çalıştırın:
 
-# Bir IP ağ bloğunu (CIDR) tarayın
-python scanner.py -t 192.168.1.0/24 -p 22,80,443
+```powershell
+# Proje klasörüne gidin
+cd "C:\Users\Muhammet Bilbay\OneDrive\Desktop\PortShield-Scanner"
 
-# IP aralığı belirtin ve sonuçları JSON olarak kaydedin
-python scanner.py -t 192.168.1.1-15 -p 80,443 -o tarama_raporu.json
-
-# İstekler arasına 200 milisaniye gecikme koyarak tarama yapın
-python scanner.py -t 192.168.1.10 -p 1-1000 --delay 200
+# Web arayüzünü başlatın
+python -m uvicorn app:app --reload
 ```
+
+Sunucu başladıktan sonra tarayıcınızdan şu adrese giderek aracı kullanabilirsiniz:
+👉 **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
+
+---
+
+## 📧 Otomatik E-posta Zamanlayıcı Kurulumu
+
+Zamanlanmış tarama sonuçlarının e-postanıza gelebilmesi için:
+1. Google hesabınızda iki adımlı doğrulamayı açın.
+2. Google Güvenlik ayarlarından **"Uygulama şifreleri (App passwords)"** aratarak 16 haneli bir şifre oluşturun.
+3. Web arayüzündeki *"Otomatik Zamanlanmış Tarama Kur"* formuna bu şifreyi ve kendi Gmail adresinizi girerek zamanlayıcıyı başlatın.
