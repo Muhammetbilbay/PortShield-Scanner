@@ -337,6 +337,28 @@ def check_ssl_expiry_days(target_ip, port):
     return None
 
 
+def get_web_page_title(target_ip, port):
+    """
+    Açık web portlarındaki sayfa başlığını (<title>) çekmeyi dener.
+    """
+    try:
+        protocol = "https" if port in [443, 8443] else "http"
+        url = f"{protocol}://{target_ip}:{port}/"
+        context = ssl._create_unverified_context() if protocol == "https" else None
+        
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        kwargs = {"context": context} if context else {}
+        
+        with urllib.request.urlopen(req, timeout=2.0, **kwargs) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+            if match:
+                return match.group(1).strip()
+    except Exception:
+        pass
+    return None
+
+
 def scan_port(target_ip, port, timeout):
     """
     Hedef IP üzerindeki tek bir portu tarar. Geriye (port, acik_mi, banner) döndürür.
@@ -584,11 +606,17 @@ async def scan_task(sem, target_ip, port, timeout, delay, scan_mode, open_ports,
             for info in probe_info:
                 warnings.append(f"Protokol Keşfi -> {info}")
                 
-            # HTTP/HTTPS için Güvenlik Başlıkları Analizi
-            if port in [80, 8080, 443]:
-                header_warnings = await asyncio.to_thread(check_http_security_headers, target_ip, port)
-                for hw in header_warnings:
-                    warnings.append(hw)
+            # HTTP/HTTPS için Güvenlik Başlıkları & Web Başlığı Analizi
+            if port in [80, 8080, 443, 8443]:
+                # Web sayfa başlığı çekme
+                web_title = await asyncio.to_thread(get_web_page_title, target_ip, port)
+                if web_title:
+                    warnings.append(f"Bilgi -> Web Sayfası Başlığı: \"{web_title}\"")
+                
+                if port in [80, 8080, 443]:
+                    header_warnings = await asyncio.to_thread(check_http_security_headers, target_ip, port)
+                    for hw in header_warnings:
+                        warnings.append(hw)
                     
             # Opsiyonel SSH/FTP Kaba Kuvvet Testi
             if brute_force:
