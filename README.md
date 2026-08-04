@@ -7,7 +7,7 @@ Python ve FastAPI ile yazılmış; yüksek hızlı asenkron port tarama, zafiyet
 ## 🚀 Öne Çıkan Özellikler
 
 - **Asenkron Tarama Motoru (`asyncio`):** Binlerce portu paralel ve eşzamanlı olarak saniyeler içinde tarar.
-- **Canlı CVE ve SSL Analizi:** Açık web portlarındaki servis sürümlerini analiz eder, SSL sertifikalarının geçerlilik gün sayısını doğrular ve ilgili CVE zafiyet kodlarını canlı API entegrasyonuyla listeler.
+- **Canlı CVE ve SSL Analizi:** Açık web portlarındaki servis sürümlerini analiz eder, SSL sertifikalarının geçerlilik gün sayısını doğrular, sayfa başlıklarını (`<title>`) otomatik olarak çeker ve ilgili CVE zafiyet kodlarını canlı API entegrasyonuyla listeler.
 - **Gelişmiş Keşif Modülleri:**
   * **Alt Alan Adı (Subdomain) Arama**
   * **Gizli Web Dizinleri Keşfi (Directory Buster)**
